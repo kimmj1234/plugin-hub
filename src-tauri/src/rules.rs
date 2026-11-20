@@ -1,7 +1,7 @@
 //! 권장 사용법 규칙 엔진.
 //! 설정 파일이 바뀔 때마다 다시 평가되어, 잘못된 사용을 실시간으로 경고한다.
 
-use crate::model::{Diagnostic, Fix, Marketplace, Plugin};
+use crate::model::{Diagnostic, Fix, Marketplace, Plugin, ProjectState};
 use crate::paths::version_key;
 use crate::scanner::SettingsInfo;
 use std::collections::{BTreeMap, HashSet};
@@ -34,8 +34,53 @@ pub fn evaluate(
     plugins: &[Plugin],
     settings: &SettingsInfo,
     marketplaces: &[Marketplace],
+    projects: &[ProjectState],
 ) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+
+    // 폴더별 설정 점검
+    let installed_ids: HashSet<&str> = plugins
+        .iter()
+        .filter(|p| p.surface == "cli" && p.installed)
+        .map(|p| p.id.as_str())
+        .collect();
+    for pr in projects {
+        if !pr.exists {
+            out.push(diag(
+                format!("project-missing:{}", pr.path),
+                "warning",
+                None,
+                format!("등록한 폴더 '{}'를 찾을 수 없습니다", pr.name),
+                format!("{}\n폴더가 옮겨졌거나 삭제되었습니다. '적용 범위' 화면에서 목록을 정리하세요.", pr.path),
+                None,
+            ));
+            continue;
+        }
+        for (label, err) in [("settings.json", &pr.shared_error), ("settings.local.json", &pr.local_error)] {
+            if let Some(e) = err {
+                out.push(diag(
+                    format!("project-invalid:{}:{label}", pr.path),
+                    "error",
+                    None,
+                    format!("'{}' 폴더의 .claude/{label} 형식 오류", pr.name),
+                    format!("이 폴더에서 Claude Code 설정이 적용되지 않을 수 있습니다. 이 앱은 파일이 고쳐질 때까지 수정하지 않습니다.\n{e}"),
+                    None,
+                ));
+            }
+        }
+        for (id, on) in pr.shared.iter().chain(pr.local.iter()) {
+            if *on && !installed_ids.contains(id.as_str()) {
+                out.push(diag(
+                    format!("project-dangling:{}:{id}", pr.path),
+                    "warning",
+                    Some(id),
+                    format!("'{}' 폴더에서 켜져 있지만 설치되지 않은 플러그인: {id}", pr.name),
+                    "이 폴더 설정에서만 켜져 있고 이 PC에는 설치되어 있지 않습니다. 팀원이 공유 설정으로 추가했다면 설치하고, 아니면 이 폴더 설정에서 '기본값 따름'으로 바꾸세요.".into(),
+                    None,
+                ));
+            }
+        }
+    }
 
     if let Some(e) = &settings.error {
         out.push(diag(

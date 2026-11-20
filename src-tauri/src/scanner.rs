@@ -317,6 +317,7 @@ fn build_plugin(
             .or_else(|| str_of(&man.value, "version")),
         latest_version: None,
         scope: install.and_then(|i| str_of(i, "scope")),
+        project_path: install.and_then(|i| str_of(i, "projectPath")),
         install_path,
         path_exists,
         manifest_ok: man.ok,
@@ -358,7 +359,19 @@ fn cli_plugins(settings: &SettingsInfo, latest: &HashMap<String, String>) -> Vec
         .map(|id| {
             let inst = installed.get(&id);
             let path = inst.and_then(|i| str_of(i, "installPath"));
-            let enabled = settings.enabled.get(&id).copied().unwrap_or(false);
+            // 폴더 범위로 설치된 플러그인은 그 폴더의 설정 파일에서 켜짐 여부를 읽는다.
+            let scope = inst.and_then(|i| str_of(i, "scope"));
+            let project = inst.and_then(|i| str_of(i, "projectPath"));
+            let enabled = match (scope.as_deref(), project) {
+                (Some(sc @ ("project" | "local")), Some(pp)) => {
+                    enabled_map(&paths::project_settings(Path::new(&pp), sc == "local"))
+                        .0
+                        .get(&id)
+                        .copied()
+                        .unwrap_or(false)
+                }
+                _ => settings.enabled.get(&id).copied().unwrap_or(false),
+            };
             let mut p = build_plugin(&id, "cli", enabled, inst, path);
             p.latest_version = latest.get(&id).cloned();
             p
@@ -413,17 +426,82 @@ pub fn env_info() -> EnvInfo {
     }
 }
 
-pub fn scan() -> Snapshot {
+fn enabled_map(p: &Path) -> (BTreeMap<String, bool>, Option<String>) {
+    let mut m = BTreeMap::new();
+    if !p.exists() {
+        return (m, None);
+    }
+    match read_json(p) {
+        Ok(v) => {
+            if let Some(o) = v.get("enabledPlugins").and_then(|x| x.as_object()) {
+                for (k, val) in o {
+                    m.insert(k.clone(), val.as_bool().unwrap_or(false));
+                }
+            }
+            (m, None)
+        }
+        Err(e) => (m, Some(e)),
+    }
+}
+
+/// 등록된 폴더마다 공유(.claude/settings.json)·개인(.claude/settings.local.json) 설정을 읽는다.
+pub fn project_states(projects: &[ProjectFolder]) -> Vec<ProjectState> {
+    projects
+        .iter()
+        .map(|f| {
+            let dir = Path::new(&f.path);
+            let (shared, shared_error) = enabled_map(&paths::project_settings(dir, false));
+            let (local, local_error) = enabled_map(&paths::project_settings(dir, true));
+            ProjectState {
+                path: f.path.clone(),
+                name: f.name.clone(),
+                exists: dir.is_dir(),
+                is_git_repo: dir.join(".git").exists(),
+                shared,
+                local,
+                shared_error,
+                local_error,
+            }
+        })
+        .collect()
+}
+
+/// Claude Code가 기억하는 작업 폴더 중 지금도 있는 것 (폴더 등록 추천용)
+pub fn suggested_projects() -> Vec<ProjectFolder> {
+    let Ok(v) = read_json(&paths::claude_global_config()) else {
+        return Vec::new();
+    };
+    let home = paths::home();
+    let mut out: Vec<ProjectFolder> = v
+        .get("projects")
+        .and_then(|x| x.as_object())
+        .map(|o| {
+            o.keys()
+                .filter(|k| Path::new(k).is_dir() && Path::new(k) != home)
+                .map(|k| ProjectFolder {
+                    name: Path::new(k).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| k.clone()),
+                    path: k.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+pub fn scan(projects: &[ProjectFolder]) -> Snapshot {
     let settings = read_settings();
     let (marketplaces, latest) = read_marketplaces();
     let mut plugins = cli_plugins(&settings, &latest);
     plugins.extend(desktop_plugins());
-    let diagnostics = rules::evaluate(&plugins, &settings, &marketplaces);
+    let projects = project_states(projects);
+    let diagnostics = rules::evaluate(&plugins, &settings, &marketplaces, &projects);
     Snapshot {
         env: env_info(),
         plugins,
         marketplaces,
         diagnostics,
+        projects,
         settings_error: settings.error,
         scanned_at: now_ms(),
     }

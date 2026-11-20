@@ -39,36 +39,76 @@ where
         .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-async fn scan() -> Result<Snapshot, String> {
-    blocking(|| Ok(scanner::scan())).await
+fn hub_state(app: &AppHandle) -> Result<HubState, String> {
+    Ok(store::load(&data_dir(app)?))
 }
 
+/// 프론트에서 받은 폴더 경로는 사용자가 등록한 폴더이거나,
+/// 설치 기록(installed_plugins.json)에 남은 폴더일 때만 받아들인다. 임의 경로 쓰기 방지.
+fn allowed_project(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+    let registered = hub_state(app)?.projects.iter().any(|p| p.path == path);
+    let recorded = || {
+        scanner::scan(&[])
+            .plugins
+            .iter()
+            .any(|p| p.project_path.as_deref() == Some(path))
+    };
+    let dir = PathBuf::from(path);
+    if !dir.is_absolute() || !(registered || recorded()) {
+        return Err("등록되지 않은 폴더입니다. '적용 범위'에서 먼저 폴더를 추가하세요.".into());
+    }
+    if !dir.is_dir() {
+        return Err(format!("폴더를 찾을 수 없습니다: {path}"));
+    }
+    Ok(dir)
+}
+
+#[tauri::command]
+async fn scan(app: AppHandle) -> Result<Snapshot, String> {
+    let projects = hub_state(&app)?.projects;
+    blocking(move || Ok(scanner::scan(&projects))).await
+}
+
+/// 플러그인 목록의 토글. 플러그인이 설치된 범위의 설정 파일을 고친다.
+/// user → ~/.claude/settings.json, project/local → 설치된 폴더의 .claude/settings(.local).json
 #[tauri::command]
 async fn set_enabled(
     app: AppHandle,
     id: String,
     enabled: bool,
     scope: Option<String>,
+    project_path: Option<String>,
 ) -> Result<(), String> {
     cli::validate_id(&id)?;
     let scope = scope.unwrap_or_else(|| "user".into());
     cli::validate_scope(&scope)?;
     let backups = data_dir(&app)?.join("backups");
+    if scope == "user" {
+        return blocking(move || settings::set_enabled(&id, Some(enabled), &backups)).await;
+    }
+    let dir = allowed_project(&app, project_path.as_deref().unwrap_or(""))?;
     blocking(move || {
-        if scope == "user" {
-            settings::set_enabled(&id, Some(enabled), &backups)
-        } else {
-            let verb = if enabled { "enable" } else { "disable" };
-            let r = cli::run(&["plugin", verb, &id, "-s", &scope], Duration::from_secs(60))?;
-            if r.ok {
-                Ok(())
-            } else {
-                Err(format!("{}{}", r.stderr.trim(), r.stdout.trim()))
-            }
-        }
+        settings::set_enabled_in(&paths::project_settings(&dir, scope == "local"), &id, Some(enabled), &backups)
     })
     .await
+}
+
+/// 폴더별 적용 설정. value: true(켬) / false(끔) / null(PC 기본값 따름)
+#[tauri::command]
+async fn set_folder_enabled(
+    app: AppHandle,
+    id: String,
+    project_path: String,
+    scope: String,
+    value: Option<bool>,
+) -> Result<(), String> {
+    cli::validate_id(&id)?;
+    if scope != "project" && scope != "local" {
+        return Err("폴더 범위는 project 또는 local만 가능합니다".into());
+    }
+    let dir = allowed_project(&app, &project_path)?;
+    let backups = data_dir(&app)?.join("backups");
+    blocking(move || settings::set_enabled_in(&paths::project_settings(&dir, scope == "local"), &id, value, &backups)).await
 }
 
 #[tauri::command]
@@ -78,11 +118,15 @@ async fn remove_setting(app: AppHandle, id: String) -> Result<(), String> {
     blocking(move || settings::set_enabled(&id, None, &backups)).await
 }
 
+/// 설치. scope가 project/local이면 그 폴더에서 CLI를 실행해 폴더 설정에 기록되게 한다.
 #[tauri::command]
 async fn install_plugin(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     accept_sha: Option<String>,
+    scope: Option<String>,
+    project_path: Option<String>,
 ) -> Result<CliResult, String> {
     cli::validate_id(&id)?;
     if let Some(s) = &accept_sha {
@@ -90,46 +134,112 @@ async fn install_plugin(
             return Err("잘못된 확인 값입니다".into());
         }
     }
+    let scope = scope.unwrap_or_else(|| "user".into());
+    cli::validate_scope(&scope)?;
+    let dir = if scope == "user" { paths::home() } else { allowed_project(&app, project_path.as_deref().unwrap_or(""))? };
     if let Ok(mut c) = state.catalog.lock() {
         *c = None;
     }
     blocking(move || {
-        let mut args = vec!["plugin", "install", id.as_str(), "-s", "user", "--json"];
+        let mut args = vec!["plugin", "install", id.as_str(), "-s", scope.as_str(), "--json"];
         if let Some(s) = accept_sha.as_deref() {
             args.push("--accept-command");
             args.push(s);
         }
-        cli::run(&args, Duration::from_secs(300))
+        cli::run_in(&dir, &args, Duration::from_secs(300))
     })
     .await
 }
 
-#[tauri::command]
-async fn uninstall_plugin(id: String, scope: Option<String>) -> Result<CliResult, String> {
-    cli::validate_id(&id)?;
-    let scope = scope.unwrap_or_else(|| "user".into());
-    cli::validate_scope(&scope)?;
-    blocking(move || {
-        cli::run(
-            &["plugin", "uninstall", &id, "-s", &scope],
-            Duration::from_secs(120),
-        )
-    })
-    .await
+fn scoped_dir(app: &AppHandle, scope: &str, project_path: Option<&str>) -> Result<PathBuf, String> {
+    if scope == "user" {
+        Ok(paths::home())
+    } else {
+        allowed_project(app, project_path.unwrap_or(""))
+    }
 }
 
 #[tauri::command]
-async fn update_plugin(id: String, scope: Option<String>) -> Result<CliResult, String> {
+async fn uninstall_plugin(app: AppHandle, id: String, scope: Option<String>, project_path: Option<String>) -> Result<CliResult, String> {
     cli::validate_id(&id)?;
     let scope = scope.unwrap_or_else(|| "user".into());
     cli::validate_scope(&scope)?;
-    blocking(move || {
-        cli::run(
-            &["plugin", "update", &id, "-s", &scope],
-            Duration::from_secs(300),
-        )
-    })
-    .await
+    let dir = scoped_dir(&app, &scope, project_path.as_deref())?;
+    blocking(move || cli::run_in(&dir, &["plugin", "uninstall", &id, "-s", &scope], Duration::from_secs(120))).await
+}
+
+#[tauri::command]
+async fn update_plugin(app: AppHandle, id: String, scope: Option<String>, project_path: Option<String>) -> Result<CliResult, String> {
+    cli::validate_id(&id)?;
+    let scope = scope.unwrap_or_else(|| "user".into());
+    cli::validate_scope(&scope)?;
+    let dir = scoped_dir(&app, &scope, project_path.as_deref())?;
+    blocking(move || cli::run_in(&dir, &["plugin", "update", &id, "-s", &scope], Duration::from_secs(300))).await
+}
+
+#[tauri::command]
+fn get_state(app: AppHandle) -> Result<HubState, String> {
+    hub_state(&app)
+}
+
+#[tauri::command]
+fn save_groups(app: AppHandle, groups: Vec<model::Group>) -> Result<(), String> {
+    let dir = data_dir(&app)?;
+    let mut st = store::load(&dir);
+    st.groups = groups;
+    store::save(&dir, &st)
+}
+
+#[tauri::command]
+fn save_prefs(app: AppHandle, prefs: model::Prefs) -> Result<(), String> {
+    if !matches!(prefs.default_install_scope.as_str(), "user" | "project" | "local") {
+        return Err("알 수 없는 범위입니다".into());
+    }
+    let dir = data_dir(&app)?;
+    let mut st = store::load(&dir);
+    st.prefs = prefs;
+    store::save(&dir, &st)
+}
+
+/// 작업 폴더 등록 (폴더 선택 창에서 고른 경로)
+#[tauri::command]
+fn add_project(app: AppHandle, path: String) -> Result<HubState, String> {
+    let dir = PathBuf::from(&path);
+    if !dir.is_absolute() || !dir.is_dir() {
+        return Err(format!("폴더가 아닙니다: {path}"));
+    }
+    if dir == paths::home() || dir.parent().is_none() {
+        return Err("홈 폴더나 최상위 폴더는 등록할 수 없습니다. 작업하는 프로젝트 폴더를 고르세요.".into());
+    }
+    let data = data_dir(&app)?;
+    let mut st = store::load(&data);
+    if !st.projects.iter().any(|p| p.path == path) {
+        let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+        st.projects.push(model::ProjectFolder { path: path.clone(), name });
+        st.projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        store::save(&data, &st)?;
+    }
+    watcher::watch_project(&dir);
+    Ok(st)
+}
+
+/// 폴더 등록 해제 (폴더 안의 설정 파일은 그대로 둔다)
+#[tauri::command]
+fn remove_project(app: AppHandle, path: String) -> Result<HubState, String> {
+    let data = data_dir(&app)?;
+    let mut st = store::load(&data);
+    st.projects.retain(|p| p.path != path);
+    if st.prefs.default_install_project.as_deref() == Some(path.as_str()) {
+        st.prefs.default_install_project = None;
+        st.prefs.default_install_scope = "user".into();
+    }
+    store::save(&data, &st)?;
+    Ok(st)
+}
+
+#[tauri::command]
+async fn suggest_projects() -> Result<Vec<model::ProjectFolder>, String> {
+    blocking(|| Ok(scanner::suggested_projects())).await
 }
 
 #[tauri::command]
@@ -208,7 +318,7 @@ async fn generate_guide(
 ) -> Result<Guide, String> {
     let dir = data_dir(&app)?;
     blocking(move || {
-        let snap = scanner::scan();
+        let snap = scanner::scan(&[]);
         let installed = snap
             .plugins
             .iter()
@@ -233,7 +343,7 @@ async fn generate_guide(
 #[tauri::command]
 async fn read_readme(id: String, surface: String) -> Result<Option<String>, String> {
     blocking(move || {
-        let snap = scanner::scan();
+        let snap = scanner::scan(&[]);
         let Some(p) = snap
             .plugins
             .iter()
@@ -263,23 +373,19 @@ async fn read_readme(id: String, surface: String) -> Result<Option<String>, Stri
     .await
 }
 
-#[tauri::command]
-fn get_groups(app: AppHandle) -> Result<HubState, String> {
-    Ok(store::load(&data_dir(&app)?))
-}
-
-#[tauri::command]
-fn save_groups(app: AppHandle, state: HubState) -> Result<(), String> {
-    store::save(&data_dir(&app)?, &state)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
-            watcher::start(app.handle().clone());
+            let projects = app
+                .path()
+                .app_data_dir()
+                .map(|d| store::load(&d).projects)
+                .unwrap_or_default();
+            watcher::start(app.handle().clone(), projects.iter().map(|p| PathBuf::from(&p.path)).collect());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -297,8 +403,13 @@ pub fn run() {
             get_guide,
             generate_guide,
             read_readme,
-            get_groups,
-            save_groups
+            get_state,
+            save_groups,
+            save_prefs,
+            add_project,
+            remove_project,
+            suggest_projects,
+            set_folder_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

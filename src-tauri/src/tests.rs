@@ -57,7 +57,7 @@ fn scan_rules_and_toggle_on_fake_home() {
         r#"{"theme":"dark","enabledPlugins":{"a@mk":true,"b@mk":true,"ghost@mk":true},"other":1}"#,
     );
 
-    let snap = scanner::scan();
+    let snap = scanner::scan(&[]);
     let ids: Vec<&str> = snap.diagnostics.iter().map(|d| d.id.as_str()).collect();
     println!("{ids:#?}");
 
@@ -88,27 +88,57 @@ fn scan_rules_and_toggle_on_fake_home() {
 
     // 설정 찌꺼기 제거 후에는 dangling 진단이 사라진다
     settings::set_enabled("ghost@mk", None, &backups).unwrap();
-    let snap = scanner::scan();
+    let snap = scanner::scan(&[]);
     assert!(!snap.diagnostics.iter().any(|d| d.id == "dangling:ghost@mk"));
 
     // 형식이 깨진 settings.json은 수정하지 않는다
     write(home.join("settings.json"), "{ broken");
     assert!(settings::set_enabled("a@mk", Some(true), &backups).is_err());
     assert_eq!(fs::read_to_string(home.join("settings.json")).unwrap(), "{ broken");
-    let snap = scanner::scan();
+    let snap = scanner::scan(&[]);
     assert!(snap.settings_error.is_some());
     assert!(snap.diagnostics.iter().any(|d| d.id == "settings-invalid"));
+
+    // 폴더별 설정: 공유(settings.json)와 개인(settings.local.json)
+    write(home.join("settings.json"), r#"{"enabledPlugins":{"a@mk":true}}"#);
+    let proj = temp_dir("proj");
+    let folder = crate::model::ProjectFolder { path: proj.to_string_lossy().to_string(), name: "proj".into() };
+    let shared = crate::paths::project_settings(&proj, false);
+    let local = crate::paths::project_settings(&proj, true);
+    settings::set_enabled_in(&shared, "a@mk", Some(false), &backups).unwrap();
+    settings::set_enabled_in(&local, "a@mk", Some(true), &backups).unwrap();
+    settings::set_enabled_in(&shared, "nothere@mk", Some(true), &backups).unwrap();
+    let snap = scanner::scan(&[folder.clone()]);
+    let st = &snap.projects[0];
+    assert!(st.exists);
+    assert_eq!(st.shared.get("a@mk"), Some(&false));
+    assert_eq!(st.local.get("a@mk"), Some(&true));
+    assert!(snap.diagnostics.iter().any(|d| d.id.starts_with("project-dangling:") && d.id.ends_with("nothere@mk")), "폴더에서만 켜진 미설치 플러그인");
+    // '기본값 따름'(None)은 항목을 지우고, 비면 enabledPlugins 키도 지운다
+    settings::set_enabled_in(&local, "a@mk", None, &backups).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&local).unwrap()).unwrap();
+    assert!(v.get("enabledPlugins").is_none());
+    // 없는 파일에 '기본값 따름'을 적용해도 파일을 만들지 않는다
+    let other = temp_dir("proj2");
+    settings::set_enabled_in(&crate::paths::project_settings(&other, true), "a@mk", None, &backups).unwrap();
+    assert!(!other.join(".claude").exists());
+    // 사라진 폴더는 경고
+    let gone = crate::model::ProjectFolder { path: "/nonexistent/pluginhub".into(), name: "gone".into() };
+    let snap = scanner::scan(&[gone]);
+    assert!(snap.diagnostics.iter().any(|d| d.id.starts_with("project-missing:")));
 
     unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
     let _ = fs::remove_dir_all(&home);
     let _ = fs::remove_dir_all(&backups);
+    let _ = fs::remove_dir_all(&proj);
+    let _ = fs::remove_dir_all(&other);
 }
 
 /// 실제 환경 읽기 전용 점검: `cargo test real_scan -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn real_scan() {
-    let s = scanner::scan();
+    let s = scanner::scan(&[]);
     println!("env: {:#?}", s.env);
     for p in &s.plugins {
         println!(

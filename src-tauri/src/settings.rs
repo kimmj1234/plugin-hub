@@ -15,7 +15,13 @@ fn backup(src: &Path, backup_dir: &Path) -> Result<(), String> {
         return Ok(());
     }
     fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
-    let dst = backup_dir.join(format!("settings-{}.json", now_ms()));
+    let tag: String = src
+        .parent()
+        .and_then(|d| d.parent())
+        .and_then(|d| d.file_name())
+        .map(|n| n.to_string_lossy().chars().filter(|c| c.is_alphanumeric()).take(24).collect())
+        .unwrap_or_default();
+    let dst = backup_dir.join(format!("settings-{}-{tag}-{}", now_ms(), src.file_name().unwrap_or_default().to_string_lossy()));
     fs::copy(src, &dst).map_err(|e| format!("백업 실패: {e}"))?;
 
     // 오래된 백업 정리
@@ -47,9 +53,18 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     fs::rename(&tmp, path).map_err(|e| format!("저장 실패: {e}"))
 }
 
-/// enabled = Some(true/false) 이면 값을 설정하고, None 이면 항목을 제거한다.
+/// PC 전체 기본값(~/.claude/settings.json)에서 켜고 끄기
 pub fn set_enabled(id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {
-    let p = paths::user_settings();
+    set_enabled_in(&paths::user_settings(), id, enabled, backup_dir)
+}
+
+/// 지정한 설정 파일의 enabledPlugins를 고친다.
+/// enabled = Some(true/false) 이면 값을 설정하고, None 이면 항목을 제거한다(상위 설정을 따름).
+pub fn set_enabled_in(p: &Path, id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {
+    let p = p.to_path_buf();
+    if enabled.is_none() && !p.exists() {
+        return Ok(());
+    }
     let mut root: Value = if p.exists() {
         let s = fs::read_to_string(&p).map_err(|e| e.to_string())?;
         if s.trim().is_empty() {
@@ -77,6 +92,10 @@ pub fn set_enabled(id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result
         None => {
             ep.remove(id);
         }
+    }
+    // 비어 버린 enabledPlugins는 지워서 파일을 깔끔하게 둔다
+    if ep.is_empty() {
+        obj.remove("enabledPlugins");
     }
     backup(&p, backup_dir)?;
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())? + "\n";

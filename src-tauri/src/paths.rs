@@ -28,6 +28,21 @@ pub fn installed_plugins_file() -> PathBuf {
     plugins_dir().join("installed_plugins.json")
 }
 
+/// 폴더(프로젝트)의 Claude Code 설정 파일. local=true면 개인용 settings.local.json
+pub fn project_settings(project: &Path, local: bool) -> PathBuf {
+    project
+        .join(".claude")
+        .join(if local { "settings.local.json" } else { "settings.json" })
+}
+
+/// Claude Code가 기억하는 작업 폴더 목록이 있는 파일
+pub fn claude_global_config() -> PathBuf {
+    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(v) if !v.is_empty() => PathBuf::from(v).join(".claude.json"),
+        _ => home().join(".claude.json"),
+    }
+}
+
 pub fn known_marketplaces_file() -> PathBuf {
     plugins_dir().join("known_marketplaces.json")
 }

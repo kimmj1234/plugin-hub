@@ -64,6 +64,8 @@ pub struct Plugin {
     pub version: Option<String>,
     pub latest_version: Option<String>,
     pub scope: Option<String>,
+    /// 폴더 범위(project/local)로 설치된 경우 그 폴더
+    pub project_path: Option<String>,
     pub install_path: Option<String>,
     pub path_exists: bool,
     pub manifest_ok: bool,
@@ -112,6 +114,7 @@ pub struct Snapshot {
     pub plugins: Vec<Plugin>,
     pub marketplaces: Vec<Marketplace>,
     pub diagnostics: Vec<Diagnostic>,
+    pub projects: Vec<ProjectState>,
     pub settings_error: Option<String>,
     pub scanned_at: u64,
 }
@@ -217,8 +220,68 @@ pub struct Group {
     pub plugin_ids: Vec<String>,
 }
 
+/// 사용자가 등록한 작업 폴더 (Claude Code 프로젝트)
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFolder {
+    pub path: String,
+    pub name: String,
+}
+
+/// 폴더별 플러그인 설정 상태
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectState {
+    pub path: String,
+    pub name: String,
+    pub exists: bool,
+    pub is_git_repo: bool,
+    /// .claude/settings.json (팀 공유)
+    pub shared: std::collections::BTreeMap<String, bool>,
+    /// .claude/settings.local.json (나만)
+    pub local: std::collections::BTreeMap<String, bool>,
+    pub shared_error: Option<String>,
+    pub local_error: Option<String>,
+}
+
+fn default_scope() -> String {
+    "user".into()
+}
+fn default_refresh() -> u32 {
+    30
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Prefs {
+    /// 새로 설치할 때 기본 범위: user | project | local
+    #[serde(default = "default_scope")]
+    pub default_install_scope: String,
+    /// 기본 범위가 폴더일 때 그 폴더
+    #[serde(default)]
+    pub default_install_project: Option<String>,
+    /// 마켓플레이스 원본 자동 확인 주기(분). 0이면 끔
+    #[serde(default = "default_refresh")]
+    pub remote_refresh_minutes: u32,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Prefs {
+            default_install_scope: default_scope(),
+            default_install_project: None,
+            remote_refresh_minutes: default_refresh(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HubState {
+    #[serde(default)]
     pub groups: Vec<Group>,
+    #[serde(default)]
+    pub projects: Vec<ProjectFolder>,
+    #[serde(default)]
+    pub prefs: Prefs,
 }
