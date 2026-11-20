@@ -44,6 +44,7 @@ export interface Plugin {
   version: string | null;
   latestVersion: string | null;
   scope: string | null;
+  projectPath: string | null;
   installPath: string | null;
   pathExists: boolean;
   manifestOk: boolean;
@@ -83,6 +84,7 @@ export interface Snapshot {
   plugins: Plugin[];
   marketplaces: Marketplace[];
   diagnostics: Diagnostic[];
+  projects: ProjectState[];
   settingsError: string | null;
   scannedAt: number;
 }
@@ -151,6 +153,32 @@ export interface Group {
   pluginIds: string[];
 }
 
+export interface ProjectFolder {
+  path: string;
+  name: string;
+}
+
+export interface ProjectState extends ProjectFolder {
+  exists: boolean;
+  isGitRepo: boolean;
+  /** .claude/settings.json (팀 공유) */
+  shared: Record<string, boolean>;
+  /** .claude/settings.local.json (나만) */
+  local: Record<string, boolean>;
+  sharedError: string | null;
+  localError: string | null;
+}
+
+export type InstallScope = "user" | "project" | "local";
+
+export interface Prefs {
+  defaultInstallScope: InstallScope;
+  defaultInstallProject: string | null;
+  remoteRefreshMinutes: number;
+}
+
 export interface HubState {
   groups: Group[];
+  projects: ProjectFolder[];
+  prefs: Prefs;
 }

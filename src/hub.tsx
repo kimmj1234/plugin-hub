@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
-import type { Catalog, Diagnostic, Group, HubState, Plugin, Snapshot } from "./types";
+import type { Catalog, Diagnostic, Group, Plugin, Prefs, ProjectFolder, Snapshot } from "./types";
 
 export interface Toast {
   id: number;
@@ -31,10 +31,18 @@ interface HubCtx {
   catalogError: string | null;
   /** 마켓플레이스 원본까지 다시 받아 목록을 갱신 */
   refreshCatalog: (remote: boolean) => Promise<void>;
+  projects: ProjectFolder[];
+  prefs: Prefs;
+  setPrefs: (p: Prefs) => Promise<void>;
+  addProject: (path: string) => Promise<void>;
+  removeProject: (path: string) => Promise<void>;
+  /** 폴더별 설정 변경. value: true 켬 / false 끔 / null 기본값 따름 */
+  setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
 }
 
-/** 마켓플레이스 원본을 다시 받아 새 플러그인·업데이트를 확인하는 주기 */
-const REMOTE_REFRESH_MS = 30 * 60 * 1000;
+const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30 };
+
+
 
 const Ctx = createContext<HubCtx | null>(null);
 
@@ -57,6 +65,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const flagged = useRef<Set<string> | null>(null);
   const catalogBusy = useRef(false);
+  const [projects, setProjects] = useState<ProjectFolder[]>([]);
+  const [prefs, setPrefsState] = useState<Prefs>(DEFAULT_PREFS);
   const toastId = useRef(0);
 
   const toast = useCallback((kind: Toast["kind"], text: string) => {
@@ -89,7 +99,14 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
-    api.getGroups().then((s) => setGroupsState(s.groups)).catch(() => {});
+    api
+      .getState()
+      .then((s) => {
+        setGroupsState(s.groups);
+        setProjects(s.projects);
+        setPrefsState(s.prefs);
+      })
+      .catch(() => {});
     const un = listen("hub://changed", () => refresh());
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
@@ -125,7 +142,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
         s ? { ...s, plugins: s.plugins.map((x) => (x.id === p.id && x.surface === p.surface ? { ...x, enabled } : x)) } : s,
       );
       try {
-        await api.setEnabled(p.id, enabled, p.scope);
+        await api.setEnabled(p.id, enabled, p.scope, p.projectPath);
         toast("ok", `${p.displayName} ${enabled ? "켬" : "끔"} · 새 Claude Code 세션부터 적용됩니다`);
       } catch (e) {
         toast("error", errorText(e));
@@ -140,7 +157,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       const targets = ps.filter((p) => p.toggleable && p.enabled !== enabled);
       for (const p of targets) {
         try {
-          await api.setEnabled(p.id, enabled, p.scope);
+          await api.setEnabled(p.id, enabled, p.scope, p.projectPath);
         } catch (e) {
           toast("error", `${p.displayName}: ${errorText(e)}`);
         }
@@ -160,7 +177,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback(
     async (p: Plugin) => {
-      const r = await withBusy(p.id, "업데이트 중", () => api.update(p.id, p.scope));
+      const r = await withBusy(p.id, "업데이트 중", () => api.update(p.id, p.scope, p.projectPath));
       if (r) reportCli(`${p.displayName} 업데이트`, r);
       refresh();
     },
@@ -169,7 +186,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const uninstall = useCallback(
     async (p: Plugin) => {
-      const r = await withBusy(p.id, "삭제 중", () => api.uninstall(p.id, p.scope));
+      const r = await withBusy(p.id, "삭제 중", () => api.uninstall(p.id, p.scope, p.projectPath));
       if (r) reportCli(`${p.displayName} 삭제`, r);
       refresh();
     },
@@ -244,18 +261,75 @@ export function HubProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshCatalog(false);
     const un = listen("hub://catalog-changed", () => refreshCatalog(false));
-    const timer = setInterval(() => refreshCatalog(true), REMOTE_REFRESH_MS);
     return () => {
       un.then((f) => f());
-      clearInterval(timer);
     };
   }, [refreshCatalog]);
+
+  // 마켓플레이스 원본 자동 확인 (설정에서 주기 변경, 0이면 끔)
+  useEffect(() => {
+    if (!prefs.remoteRefreshMinutes) return;
+    const timer = setInterval(() => refreshCatalog(true), prefs.remoteRefreshMinutes * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [refreshCatalog, prefs.remoteRefreshMinutes]);
+
+  const setPrefs = useCallback(
+    async (p: Prefs) => {
+      setPrefsState(p);
+      try {
+        await api.savePrefs(p);
+      } catch (e) {
+        toast("error", `설정 저장 실패: ${errorText(e)}`);
+      }
+    },
+    [toast],
+  );
+
+  const addProject = useCallback(
+    async (path: string) => {
+      try {
+        const st = await api.addProject(path);
+        setProjects(st.projects);
+        toast("ok", "폴더를 등록했습니다");
+        refresh();
+      } catch (e) {
+        toast("error", errorText(e));
+      }
+    },
+    [toast, refresh],
+  );
+
+  const removeProject = useCallback(
+    async (path: string) => {
+      try {
+        const st = await api.removeProject(path);
+        setProjects(st.projects);
+        setPrefsState(st.prefs);
+        refresh();
+      } catch (e) {
+        toast("error", errorText(e));
+      }
+    },
+    [toast, refresh],
+  );
+
+  const setFolder = useCallback(
+    async (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => {
+      try {
+        await api.setFolderEnabled(pluginId, projectPath, scope, value);
+      } catch (e) {
+        toast("error", errorText(e));
+      }
+      refresh();
+    },
+    [toast, refresh],
+  );
 
   const setGroups = useCallback(
     async (g: Group[]) => {
       setGroupsState(g);
       try {
-        await api.saveGroups({ groups: g } satisfies HubState);
+        await api.saveGroups(g);
       } catch (e) {
         toast("error", `폴더 저장 실패: ${errorText(e)}`);
       }
@@ -265,7 +339,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog }}
+      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder }}
     >
       {children}
     </Ctx.Provider>

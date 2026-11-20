@@ -1,17 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AiStatus, Catalog, CliResult, Guide, HubState, Snapshot, Surface } from "./types";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import type { AiStatus, Catalog, CliResult, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Snapshot, Surface } from "./types";
 
 export const api = {
   scan: () => invoke<Snapshot>("scan"),
-  setEnabled: (id: string, enabled: boolean, scope?: string | null) =>
-    invoke<void>("set_enabled", { id, enabled, scope: scope ?? null }),
+  setEnabled: (id: string, enabled: boolean, scope?: string | null, projectPath?: string | null) =>
+    invoke<void>("set_enabled", { id, enabled, scope: scope ?? null, projectPath: projectPath ?? null }),
+  /** 폴더별 설정. value: true 켬 / false 끔 / null 기본값 따름 */
+  setFolderEnabled: (id: string, projectPath: string, scope: "project" | "local", value: boolean | null) =>
+    invoke<void>("set_folder_enabled", { id, projectPath, scope, value }),
   removeSetting: (id: string) => invoke<void>("remove_setting", { id }),
-  install: (id: string, acceptSha?: string) =>
-    invoke<CliResult>("install_plugin", { id, acceptSha: acceptSha ?? null }),
-  uninstall: (id: string, scope?: string | null) =>
-    invoke<CliResult>("uninstall_plugin", { id, scope: scope ?? null }),
-  update: (id: string, scope?: string | null) =>
-    invoke<CliResult>("update_plugin", { id, scope: scope ?? null }),
+  install: (id: string, opts: { acceptSha?: string; scope?: InstallScope; projectPath?: string | null } = {}) =>
+    invoke<CliResult>("install_plugin", { id, acceptSha: opts.acceptSha ?? null, scope: opts.scope ?? "user", projectPath: opts.projectPath ?? null }),
+  uninstall: (id: string, scope?: string | null, projectPath?: string | null) =>
+    invoke<CliResult>("uninstall_plugin", { id, scope: scope ?? null, projectPath: projectPath ?? null }),
+  update: (id: string, scope?: string | null, projectPath?: string | null) =>
+    invoke<CliResult>("update_plugin", { id, scope: scope ?? null, projectPath: projectPath ?? null }),
   addMarketplace: (source: string) => invoke<CliResult>("add_marketplace", { source }),
   catalog: (refresh = false) => invoke<Catalog>("get_catalog", { refresh }),
   readme: (id: string, surface: Surface) =>
@@ -28,8 +32,17 @@ export const api = {
       name: args.name ?? null,
       description: args.description ?? null,
     }),
-  getGroups: () => invoke<HubState>("get_groups"),
-  saveGroups: (state: HubState) => invoke<void>("save_groups", { state }),
+  getState: () => invoke<HubState>("get_state"),
+  saveGroups: (groups: Group[]) => invoke<void>("save_groups", { groups }),
+  savePrefs: (prefs: Prefs) => invoke<void>("save_prefs", { prefs }),
+  addProject: (path: string) => invoke<HubState>("add_project", { path }),
+  removeProject: (path: string) => invoke<HubState>("remove_project", { path }),
+  suggestProjects: () => invoke<ProjectFolder[]>("suggest_projects"),
+  /** 폴더 선택 창 */
+  pickFolder: async (): Promise<string | null> => {
+    const r = await openDialog({ directory: true, multiple: false, title: "플러그인을 적용할 작업 폴더 선택" });
+    return typeof r === "string" ? r : null;
+  },
 };
 
 /** CLI 결과를 사람이 읽을 메시지로 */

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, cliMessage } from "../api";
 import { useHub } from "../hub";
-import type { AcceptPrompt, CatalogEntry } from "../types";
+import type { AcceptPrompt, CatalogEntry, InstallScope } from "../types";
 import { CATEGORIES, OTHER, POPULARITY_DATE, categorize, categoryById, formatStars, koDescription, stars, topPopular } from "../catalogMeta";
 import { GuidePanel } from "../components/GuidePanel";
 
@@ -17,7 +17,9 @@ interface Row extends CatalogEntry {
 }
 
 export function Discover() {
-  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog } = useHub();
+  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog, prefs, projects, addProject } = useHub();
+  const [instScope, setInstScope] = useState<InstallScope>("user");
+  const [instProject, setInstProject] = useState<string>("");
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [mkt, setMkt] = useState("");
@@ -93,10 +95,22 @@ export function Discover() {
 
   useEffect(() => setLimit(PAGE), [q, mkt, cat, filter, sort]);
 
+  const openConfirm = (e: CatalogEntry) => {
+    setInstScope(prefs.defaultInstallScope);
+    setInstProject(prefs.defaultInstallProject ?? projects[0]?.path ?? "");
+    setConfirm(e);
+  };
+
   const doInstall = async (entry: CatalogEntry, sha?: string) => {
+    if (instScope !== "user" && !instProject) {
+      toast("error", "설치할 폴더를 고르세요");
+      return;
+    }
     setConfirm(null);
     setAccept(null);
-    const r = await withBusy(entry.pluginId, "설치 중", () => api.install(entry.pluginId, sha));
+    const r = await withBusy(entry.pluginId, "설치 중", () =>
+      api.install(entry.pluginId, { acceptSha: sha, scope: instScope, projectPath: instScope === "user" ? null : instProject }),
+    );
     if (!r) return;
     if (r.needsAccept) {
       setAccept({ entry, prompt: r.needsAccept });
@@ -140,7 +154,7 @@ export function Discover() {
         ) : busy[e.pluginId] ? (
           <span className="spinner-text">{busy[e.pluginId]}…</span>
         ) : (
-          e.installable && <button onClick={(ev) => { ev.stopPropagation(); setConfirm(e); }}>설치</button>
+          e.installable && <button onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}>설치</button>
         )}
       </li>
     );
@@ -240,7 +254,7 @@ export function Discover() {
               {installedWhere(selected).length > 0 ? (
                 <span className="badge ok">{installedWhere(selected).join("·")}에 설치됨 · '설치된 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
               ) : (
-                selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => setConfirm(selected)}>설치</button>
+                selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => openConfirm(selected)}>설치</button>
               )}
               {selected.sourceUrl && /^https?:\/\//.test(selected.sourceUrl) && (
                 <button onClick={() => openUrl(selected.sourceUrl!)}>소스 저장소 열기</button>
@@ -251,7 +265,7 @@ export function Discover() {
               <GuidePanel id={selected.pluginId} version={selected.version} installed={false} name={selected.name} description={selected.description} />
             </section>
             <p className="note">
-              설치하면 공식 <code>claude plugin install</code> 명령으로 사용자 범위에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.
+              설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.
             </p>
           </div>
         ) : (
@@ -268,9 +282,31 @@ export function Discover() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{confirm.name} 설치</h3>
             <p>
-              <code>{confirm.pluginId}</code>을 사용자 범위에 설치합니다.
+              <code>{confirm.pluginId}</code>
               {confirm.sourceUrl && <><br />출처: <span className="mono small">{confirm.sourceUrl}</span></>}
             </p>
+            <div className="scope-choice">
+              <div className="small"><strong>어디에 적용할까요?</strong></div>
+              {([
+                ["user", "PC 전체", "모든 폴더에서 쓰입니다"],
+                ["local", "특정 폴더 · 나만", "그 폴더에서 나에게만"],
+                ["project", "특정 폴더 · 팀 공유", "그 폴더의 git 설정으로 팀원과 공유"],
+              ] as [InstallScope, string, string][]).map(([v, l, d]) => (
+                <label key={v} className="radio">
+                  <input type="radio" name="inst-scope" checked={instScope === v} onChange={() => setInstScope(v)} />
+                  <span><strong>{l}</strong> <span className="muted small">— {d}</span></span>
+                </label>
+              ))}
+              {instScope !== "user" && (
+                <div className="row indent">
+                  <select value={instProject} onChange={(e) => setInstProject(e.target.value)} aria-label="설치할 폴더">
+                    <option value="">폴더 선택…</option>
+                    {projects.map((p) => <option key={p.path} value={p.path}>{p.name}</option>)}
+                  </select>
+                  <button onClick={async () => { const path = await api.pickFolder(); if (path) { await addProject(path); setInstProject(path); } }}>다른 폴더…</button>
+                </div>
+              )}
+            </div>
             <div className="actions end">
               <button onClick={() => setConfirm(null)}>취소</button>
               <button className="primary" onClick={() => doInstall(confirm)}>설치</button>

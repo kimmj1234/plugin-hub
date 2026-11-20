@@ -5,9 +5,11 @@ import { Installed } from "./views/Installed";
 import { Discover } from "./views/Discover";
 import { Diagnostics } from "./views/Diagnostics";
 import { Commands } from "./views/Commands";
+import { Scopes } from "./views/Scopes";
+import { Settings } from "./views/Settings";
 import "./App.css";
 
-type View = "dashboard" | "installed" | "commands" | "discover" | "diagnostics";
+type View = "dashboard" | "installed" | "scopes" | "commands" | "discover" | "diagnostics" | "settings";
 
 function Shell() {
   const { snap, loading, loadError, toasts, dismissToast, refresh, catalog } = useHub();
@@ -19,9 +21,11 @@ function Shell() {
   const nav: { key: View; label: string; badge?: number; bad?: boolean }[] = [
     { key: "dashboard", label: "대시보드" },
     { key: "installed", label: "설치된 플러그인", badge: cliCount },
+    { key: "scopes", label: "적용 범위" },
     { key: "commands", label: "슬래시 명령" },
     { key: "discover", label: "플러그인 찾기", badge: freshCount || undefined },
     { key: "diagnostics", label: "진단", badge: problems || undefined, bad: problems > 0 },
+    { key: "settings", label: "설정" },
   ];
 
   return (
@@ -54,7 +58,9 @@ function Shell() {
         )}
         {snap && view === "dashboard" && <Dashboard go={setView} />}
         {snap && view === "installed" && <Installed />}
+        {snap && view === "scopes" && <Scopes />}
         {snap && view === "commands" && <Commands />}
+        {snap && view === "settings" && <Settings />}
         {snap && view === "discover" && <Discover />}
         {snap && view === "diagnostics" && <Diagnostics />}
       </main>

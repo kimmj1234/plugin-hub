@@ -3,7 +3,7 @@
  * Tauri 밖(`npm run dev` 후 브라우저)에서 열면 Rust 대신 가짜 데이터로 응답한다.
  * UI 확인과 README 스크린샷용이며, 실제 파일은 건드리지 않는다.
  */
-import type { Catalog, CatalogEntry, Component, Diagnostic, Guide, Plugin, Snapshot } from "./types";
+import type { Catalog, CatalogEntry, Component, Diagnostic, Guide, HubState, Plugin, ProjectState, Snapshot } from "./types";
 
 const comp = (name: string, description: string, extra: Partial<Component> = {}): Component => ({
   name,
@@ -27,6 +27,7 @@ function plugin(p: Partial<Plugin> & Pick<Plugin, "id">): Plugin {
     version: "1.0.0",
     latestVersion: null,
     scope: "user",
+    projectPath: null,
     installPath: `~/.claude/plugins/cache/${marketplace}/${name}`,
     pathExists: true,
     manifestOk: true,
@@ -127,6 +128,15 @@ function snapshot(): Snapshot {
       { name: "team-tools", source: "my-team/claude-tools", installLocation: null, pluginCount: 6 },
     ],
     diagnostics: diagnostics(),
+    projects: hub.projects.map((f) => ({
+      ...f,
+      exists: true,
+      isGitRepo: f.name !== "개인-메모",
+      shared: folderSettings[f.path]?.shared ?? {},
+      local: folderSettings[f.path]?.local ?? {},
+      sharedError: null,
+      localError: null,
+    })) as ProjectState[],
     settingsError: null,
     scannedAt: Date.now(),
   };
@@ -159,6 +169,19 @@ const catalogEntries: CatalogEntry[] = [
 }));
 
 const guides: Record<string, Guide> = {};
+
+const folderSettings: Record<string, { shared: Record<string, boolean>; local: Record<string, boolean> }> = {
+  "~/dev/shop-web": { shared: { "frontend-design@claude-plugins-official": true, "deploy-kit@team-tools": true }, local: { "superpowers@anthropic-plugin-directory": false } },
+};
+
+let hub: HubState = {
+  groups: [],
+  projects: [
+    { path: "~/dev/shop-web", name: "shop-web" },
+    { path: "~/dev/api-server", name: "api-server" },
+  ],
+  prefs: { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30 },
+};
 
 let groups = { groups: [{ id: "g1", name: "매일 쓰는 것", pluginIds: ["superpowers@anthropic-plugin-directory", "frontend-design@claude-plugins-official"] }, { id: "g2", name: "팀 배포", pluginIds: ["commit-helper@team-tools", "deploy-kit@team-tools"] }] };
 
@@ -227,11 +250,32 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
     }
     case "read_readme":
       return "# 사용 예시\n\n이 README는 **미리보기 모드**의 예시입니다.\n\n- 설치 후 새 세션을 시작하세요\n- `/plugin:skill` 형식으로 직접 부를 수 있습니다\n\n```bash\nclaude plugin list\n```";
-    case "get_groups":
-      return groups;
+    case "get_state":
+      return { ...hub, groups: groups.groups };
     case "save_groups":
-      groups = args.state;
+      groups = { groups: args.groups };
       return null;
+    case "save_prefs":
+      hub = { ...hub, prefs: args.prefs };
+      return null;
+    case "add_project": {
+      if (!hub.projects.some((p) => p.path === args.path)) hub.projects.push({ path: args.path, name: String(args.path).split("/").pop() ?? args.path });
+      return { ...hub, groups: groups.groups };
+    }
+    case "remove_project":
+      hub.projects = hub.projects.filter((p) => p.path !== args.path);
+      return { ...hub, groups: groups.groups };
+    case "suggest_projects":
+      return [{ path: "~/dev/blog", name: "blog" }, { path: "~/Documents/개인-메모", name: "개인-메모" }];
+    case "set_folder_enabled": {
+      const f = (folderSettings[args.projectPath] ??= { shared: {}, local: {} });
+      const m = args.scope === "local" ? f.local : f.shared;
+      if (args.value === null) delete m[args.id];
+      else m[args.id] = args.value;
+      return null;
+    }
+    case "plugin:dialog|open":
+      return "~/dev/new-project";
     case "plugin:event|listen":
       return 1;
     case "plugin:event|unlisten":

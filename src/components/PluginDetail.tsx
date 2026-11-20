@@ -9,6 +9,7 @@ import { Toggle } from "./Toggle";
 import { DiagnosticItem } from "./DiagnosticItem";
 import { GuidePanel } from "./GuidePanel";
 import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
+import { ScopeEditor } from "./ScopeEditor";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const { snap, toggle, uninstall, update, busy, groups, setGroups } = useHub();
@@ -62,7 +63,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         <span className={`badge ${p.surface}`}>{p.surface === "cli" ? "터미널·Claude Code" : "Claude 앱"}</span>
         {p.version && <span className="badge">v{p.version}</span>}
         {hasUpdate && <span className="badge warn">새 버전 v{p.latestVersion}</span>}
-        {p.scope && <span className="badge">범위: {p.scope}</span>}
+        {p.scope && <span className="badge">설치 범위: {p.scope === "user" ? "PC 전체" : p.scope === "local" ? "폴더·나만" : "폴더·팀 공유"}</span>}
         {p.author && <span className="badge">제작: {p.author}</span>}
         <span className="badge">슬래시 명령 {direct.length}개</span>
       </div>
@@ -98,6 +99,13 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         )}
         {busyLabel && <span className="spinner-text">{busyLabel}…</span>}
       </div>
+
+      {p.surface === "cli" && p.installed && (
+        <section>
+          <h3>적용 범위 · 어느 폴더에서 쓸까요?</h3>
+          <ScopeEditor plugin={p} />
+        </section>
+      )}
 
       {diags.length > 0 && (
         <section>
