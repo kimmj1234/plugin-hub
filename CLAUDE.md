@@ -5,6 +5,13 @@
 ## 개요
 Claude Code 플러그인 관리 데스크톱 앱. 스택은 Tauri + React (TypeScript), macOS 우선, 이후 Windows 확장. 자세한 내용은 [README.md](README.md).
 
+## 명령
+- 개발 실행: `npm run tauri dev` / 빌드: `npm run tauri build`
+- 테스트: `cd src-tauri && cargo test` (실제 환경 읽기 전용 점검: `cargo test real_scan -- --ignored --nocapture`)
+- 브라우저 미리보기(가짜 데이터): `npm run dev` → http://localhost:1420
+- OS별 경로는 `src-tauri/src/paths.rs`에만 둔다.
+- 테스트에서 실제 `~/.claude`를 수정하지 않는다 (`CLAUDE_CONFIG_DIR`을 임시 폴더로).
+
 ## 작업 규칙
 1. **작업이 끝날 때마다 [DEVLOG.md](DEVLOG.md)에 기록한다.** 한 일, 막힌 점과 해결, AI에게 맡긴 것과 사용자가 판단한 것, 배운 점을 적는다.
 2. README는 구현된 것만 "완료"로 표시한다. 구현하지 않은 것을 구현한 것처럼 쓰지 않는다.
