@@ -33,21 +33,38 @@ fn split_id(id: &str) -> (String, String) {
     }
 }
 
-/// SKILL.md / commands/*.md 의 YAML frontmatter에서 name, description만 간단히 뽑는다.
-fn frontmatter(path: &Path) -> (Option<String>, Option<String>) {
-    let Ok(text) = fs::read_to_string(path) else {
-        return (None, None);
-    };
+fn unquote(s: &str) -> String {
+    let s = s.trim();
+    let s = s
+        .strip_prefix('"')
+        .and_then(|x| x.strip_suffix('"'))
+        .or_else(|| s.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')))
+        .unwrap_or(s);
+    s.replace("\\\"", "\"").replace("''", "'")
+}
+
+/// SKILL.md / commands/*.md 의 YAML frontmatter에서 필요한 키만 간단히 뽑는다.
+/// (YAML 라이브러리 없이 자주 쓰는 형태만 지원: 한 줄 값, `|`/`>` 여러 줄 값, examples 목록)
+pub struct Frontmatter {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub argument_hint: Option<String>,
+    pub user_invocable: bool,
+    pub model_invocable: bool,
+    pub examples: Vec<String>,
+}
+
+pub fn parse_frontmatter(text: &str) -> Option<Frontmatter> {
     let mut lines = text.lines();
     if lines.next().map(|l| l.trim()) != Some("---") {
-        return (None, None);
+        return None;
     }
     let block: Vec<&str> = lines.take_while(|l| l.trim() != "---").collect();
     let get = |key: &str| -> Option<String> {
         let prefix = format!("{key}:");
         let idx = block.iter().position(|l| l.starts_with(&prefix))?;
         let raw = block[idx][prefix.len()..].trim();
-        let value = if raw == "|" || raw == ">" || raw == "|-" || raw == ">-" || raw.is_empty() {
+        let value = if matches!(raw, "|" | ">" | "|-" | ">-" | "") {
             block[idx + 1..]
                 .iter()
                 .take_while(|l| l.starts_with(' ') || l.starts_with('\t'))
@@ -55,11 +72,30 @@ fn frontmatter(path: &Path) -> (Option<String>, Option<String>) {
                 .collect::<Vec<_>>()
                 .join(" ")
         } else {
-            raw.trim_matches(|c| c == '"' || c == '\'').to_string()
+            unquote(raw)
         };
         if value.is_empty() { None } else { Some(value) }
     };
-    (get("name"), get("description"))
+    let flag = |key: &str| get(key).map(|v| v.eq_ignore_ascii_case("true"));
+    let mut examples = Vec::new();
+    if let Some(idx) = block.iter().position(|l| l.starts_with("examples:")) {
+        for l in block[idx + 1..].iter().take_while(|l| l.starts_with(' ') || l.starts_with('\t') || l.starts_with('-')) {
+            let t = l.trim().trim_start_matches("- ").trim();
+            if let Some(v) = t.strip_prefix("utterance:") {
+                examples.push(unquote(v));
+            } else if l.trim_start().starts_with("- ") && !t.contains(':') {
+                examples.push(unquote(t));
+            }
+        }
+    }
+    Some(Frontmatter {
+        name: get("name"),
+        description: get("description"),
+        argument_hint: get("argument-hint"),
+        user_invocable: flag("user-invocable").unwrap_or(true),
+        model_invocable: !flag("disable-model-invocation").unwrap_or(false),
+        examples,
+    })
 }
 
 fn md_components(dir: &Path, nested_file: Option<&str>) -> Vec<Component> {
@@ -80,10 +116,22 @@ fn md_components(dir: &Path, nested_file: Option<&str>) -> Vec<Component> {
         if !file.is_file() {
             continue;
         }
-        let (name, desc) = frontmatter(&file);
-        out.push(Component {
-            name: name.unwrap_or(fallback),
-            description: desc.unwrap_or_default(),
+        let fm = fs::read_to_string(&file).ok().and_then(|t| parse_frontmatter(&t));
+        out.push(match fm {
+            Some(f) => Component {
+                name: f.name.unwrap_or(fallback),
+                description: f.description.unwrap_or_default(),
+                argument_hint: f.argument_hint,
+                user_invocable: f.user_invocable,
+                model_invocable: f.model_invocable,
+                examples: f.examples,
+            },
+            None => Component {
+                name: fallback,
+                user_invocable: true,
+                model_invocable: true,
+                ..Default::default()
+            },
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));

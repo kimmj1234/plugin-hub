@@ -56,9 +56,13 @@ pub fn active_cli() -> Option<CliInfo> {
 }
 
 fn run_raw(bin: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
+    run_raw_in(bin, &paths::home(), args, timeout)
+}
+
+fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
     let mut child = Command::new(bin)
         .args(args)
-        .current_dir(paths::home())
+        .current_dir(cwd)
         .env("PATH", paths::child_path())
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -117,6 +121,12 @@ pub fn run(args: &[&str], timeout: Duration) -> Result<CliResult, String> {
             .to_string()
     })?;
     run_raw(Path::new(&cli.path), args, timeout)
+}
+
+/// 작업 폴더를 지정해 실행한다 (가이드 생성처럼 사용자 프로젝트 설정을 피해야 할 때).
+pub fn run_in(cwd: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
+    let cli = active_cli().ok_or_else(|| "Claude Code CLI를 찾지 못했습니다.".to_string())?;
+    run_raw_in(Path::new(&cli.path), cwd, args, timeout)
 }
 
 /// `--json` 출력에서 사용자 확인이 필요한 명령(shownCommand)을 찾는다.

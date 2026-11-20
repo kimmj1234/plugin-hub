@@ -2,10 +2,14 @@
 //! 1순위: `claude plugin list --available --json` (설치 가능한 공식 목록)
 //! 2순위: CLI가 없을 때 Claude Code가 남긴 디렉터리 캐시 파일 (보기 전용)
 
-use crate::model::{Catalog, CatalogEntry};
+use crate::model::{Catalog, CatalogChange, CatalogEntry};
 use crate::scanner::{now_ms, read_json};
 use crate::{cli, paths};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 fn s(v: &Value, k: &str) -> Option<String> {
@@ -48,6 +52,7 @@ fn from_cli() -> Result<Vec<CatalogEntry>, String> {
                 version: s(e, "version"),
                 source_url: e.get("source").and_then(source_url),
                 installable: true,
+                change: CatalogChange::default(),
                 plugin_id: id,
             })
         })
@@ -74,6 +79,7 @@ fn from_local_cache() -> Vec<CatalogEntry> {
                             .and_then(|x| x.get("repository"))
                             .and_then(|r| s(r, "url")),
                         installable: false,
+                        change: CatalogChange::default(),
                         name,
                     })
                 })
@@ -82,24 +88,103 @@ fn from_local_cache() -> Vec<CatalogEntry> {
         .unwrap_or_default()
 }
 
-pub fn load() -> Result<Catalog, String> {
-    match from_cli() {
-        Ok(entries) => Ok(Catalog {
-            entries,
-            origin: "cli".into(),
-            fetched_at: now_ms(),
-        }),
+/// "새로 생김" 표시를 유지하는 기간
+const NEW_BADGE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+#[derive(Serialize, Deserialize, Default)]
+struct Seen {
+    /// pluginId -> 마지막으로 본 버전
+    #[serde(default)]
+    versions: HashMap<String, String>,
+    /// pluginId -> 처음 본 시각
+    #[serde(default)]
+    first_seen: HashMap<String, u64>,
+    /// pluginId -> 버전이 바뀐 것을 본 시각
+    #[serde(default)]
+    updated_at: HashMap<String, u64>,
+}
+
+/// 이전에 본 카탈로그와 비교해 새 플러그인·업데이트를 표시하고 기록을 갱신한다.
+fn track_changes(entries: &mut [CatalogEntry], data_dir: &Path) -> (usize, usize, bool) {
+    let file = data_dir.join("catalog-seen.json");
+    let first_run = !file.exists();
+    let mut seen: Seen = fs::read_to_string(&file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let now = now_ms();
+    let (mut new_count, mut updated_count) = (0, 0);
+    for e in entries.iter_mut() {
+        let ver = e.version.clone().unwrap_or_default();
+        let first = *seen
+            .first_seen
+            .entry(e.plugin_id.clone())
+            .or_insert(if first_run { 0 } else { now });
+        match seen.versions.get(&e.plugin_id) {
+            Some(old) if old != &ver && !ver.is_empty() => {
+                seen.updated_at.insert(e.plugin_id.clone(), now);
+            }
+            _ => {}
+        }
+        seen.versions.insert(e.plugin_id.clone(), ver);
+        let is_new = first > 0 && now.saturating_sub(first) < NEW_BADGE_MS;
+        let updated = !is_new
+            && seen
+                .updated_at
+                .get(&e.plugin_id)
+                .map(|t| now.saturating_sub(*t) < NEW_BADGE_MS)
+                .unwrap_or(false);
+        new_count += is_new as usize;
+        updated_count += updated as usize;
+        e.change = CatalogChange {
+            is_new,
+            updated,
+            first_seen: first,
+        };
+    }
+    let _ = fs::create_dir_all(data_dir);
+    if let Ok(text) = serde_json::to_string(&seen) {
+        let tmp = file.with_extension("json.tmp");
+        if fs::write(&tmp, text).is_ok() {
+            let _ = fs::rename(&tmp, &file);
+        }
+    }
+    (new_count, updated_count, first_run)
+}
+
+pub fn load(data_dir: &Path) -> Result<Catalog, String> {
+    let (mut entries, origin) = match from_cli() {
+        Ok(entries) => (entries, "cli"),
         Err(e) => {
             let entries = from_local_cache();
             if entries.is_empty() {
-                Err(e)
-            } else {
-                Ok(Catalog {
-                    entries,
-                    origin: "local-cache".into(),
-                    fetched_at: now_ms(),
-                })
+                return Err(e);
             }
+            (entries, "local-cache")
         }
+    };
+    let (new_count, updated_count, first_run) = track_changes(&mut entries, data_dir);
+    Ok(Catalog {
+        entries,
+        origin: origin.into(),
+        fetched_at: now_ms(),
+        new_count,
+        updated_count,
+        first_run,
+    })
+}
+
+/// 등록된 마켓플레이스를 원본(git 등)에서 다시 받아 새 플러그인·버전을 반영한다.
+pub fn update_marketplaces() -> Result<String, String> {
+    let r = cli::run(&["plugin", "marketplace", "update"], Duration::from_secs(180))?;
+    if r.ok {
+        Ok(r.stdout.trim().to_string())
+    } else {
+        Err(format!("마켓플레이스 업데이트 실패: {}", r.stderr.trim()))
     }
+}
+
+#[cfg(test)]
+pub fn track_changes_for_test(entries: &mut [CatalogEntry], data_dir: &Path) -> (usize, usize, bool) {
+    track_changes(entries, data_dir)
 }

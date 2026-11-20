@@ -1,5 +1,6 @@
 mod catalog;
 mod cli;
+mod guide;
 mod model;
 mod paths;
 mod rules;
@@ -10,7 +11,7 @@ mod store;
 mod tests;
 mod watcher;
 
-use model::{Catalog, CliResult, HubState, Snapshot};
+use model::{AiStatus, Catalog, CliResult, Guide, HubState, Snapshot};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -150,7 +151,7 @@ async fn add_marketplace(state: State<'_, AppState>, source: String) -> Result<C
 }
 
 #[tauri::command]
-async fn get_catalog(state: State<'_, AppState>, refresh: bool) -> Result<Catalog, String> {
+async fn get_catalog(app: AppHandle, state: State<'_, AppState>, refresh: bool) -> Result<Catalog, String> {
     if !refresh {
         if let Ok(c) = state.catalog.lock() {
             if let Some(cat) = c.as_ref() {
@@ -160,11 +161,72 @@ async fn get_catalog(state: State<'_, AppState>, refresh: bool) -> Result<Catalo
             }
         }
     }
-    let cat = blocking(catalog::load).await?;
+    let dir = data_dir(&app)?;
+    let cat = blocking(move || catalog::load(&dir)).await?;
     if let Ok(mut c) = state.catalog.lock() {
         *c = Some(cat.clone());
     }
     Ok(cat)
+}
+
+/// 마켓플레이스를 원본에서 다시 받아 새 플러그인·업데이트를 가져온다.
+#[tauri::command]
+async fn update_marketplaces(state: State<'_, AppState>) -> Result<String, String> {
+    let r = blocking(catalog::update_marketplaces).await;
+    if let Ok(mut c) = state.catalog.lock() {
+        *c = None;
+    }
+    r
+}
+
+#[tauri::command]
+async fn ai_status() -> Result<AiStatus, String> {
+    blocking(|| Ok(guide::status())).await
+}
+
+#[tauri::command]
+fn open_login() -> Result<(), String> {
+    guide::open_login_terminal()
+}
+
+/// 저장된 한국어 가이드 (없으면 null)
+#[tauri::command]
+fn get_guide(app: AppHandle, id: String, version: Option<String>) -> Result<Option<Guide>, String> {
+    Ok(guide::cached(&data_dir(&app)?, &id, version.as_deref()))
+}
+
+/// 한국어 가이드 생성. 설치된 플러그인이면 디스크의 구성 요소·README를 근거로 쓰고,
+/// 설치 전 플러그인이면 카탈로그의 이름·설명만으로 만든다.
+#[tauri::command]
+async fn generate_guide(
+    app: AppHandle,
+    id: String,
+    surface: Option<String>,
+    version: Option<String>,
+    name: Option<String>,
+    description: Option<String>,
+) -> Result<Guide, String> {
+    let dir = data_dir(&app)?;
+    blocking(move || {
+        let snap = scanner::scan();
+        let installed = snap
+            .plugins
+            .iter()
+            .find(|p| p.id == id && surface.as_deref().map(|s| s == p.surface).unwrap_or(true) && p.path_exists);
+        let (context, ver) = match installed {
+            Some(p) => (guide::context_from_plugin(p), p.version.clone()),
+            None => (
+                format!(
+                    "플러그인 이름: {}\n식별자: {id}\n설명: {}\n(아직 설치되지 않아 구성 요소 정보가 없다. 설명만으로 요약하고 commands는 빈 배열로 둔다.)\n",
+                    name.unwrap_or_else(|| id.clone()),
+                    description.unwrap_or_default()
+                ),
+                version,
+            ),
+        };
+        guide::generate(&dir, &id, ver.as_deref(), &context)
+    })
+    .await
 }
 
 /// README는 프론트에서 받은 경로가 아니라 스캔 결과의 설치 경로로만 읽는다.
@@ -229,6 +291,11 @@ pub fn run() {
             update_plugin,
             add_marketplace,
             get_catalog,
+            update_marketplaces,
+            ai_status,
+            open_login,
+            get_guide,
+            generate_guide,
             read_readme,
             get_groups,
             save_groups

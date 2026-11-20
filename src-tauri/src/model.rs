@@ -29,6 +29,14 @@ pub struct EnvInfo {
 pub struct Component {
     pub name: String,
     pub description: String,
+    /// 슬래시 명령 뒤에 붙이는 인자 안내 (frontmatter `argument-hint`)
+    pub argument_hint: Option<String>,
+    /// `/` 메뉴에서 직접 부를 수 있는지 (`user-invocable: false`면 false)
+    pub user_invocable: bool,
+    /// Claude가 상황을 보고 자동으로 부를 수 있는지 (`disable-model-invocation: true`면 false)
+    pub model_invocable: bool,
+    /// 예시 요청 문장 (frontmatter `examples[].utterance`)
+    pub examples: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -118,6 +126,18 @@ pub struct CatalogEntry {
     pub version: Option<String>,
     pub source_url: Option<String>,
     pub installable: bool,
+    #[serde(flatten)]
+    pub change: CatalogChange,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogChange {
+    /// 이전에 본 적 없는 플러그인
+    pub is_new: bool,
+    /// 이전에 본 버전과 달라진 플러그인
+    pub updated: bool,
+    pub first_seen: u64,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -127,6 +147,48 @@ pub struct Catalog {
     /// "cli" | "local-cache"
     pub origin: String,
     pub fetched_at: u64,
+    pub new_count: usize,
+    pub updated_count: usize,
+    /// 처음 실행이라 모두 "본 것"으로 기록한 경우
+    pub first_run: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GuideCommand {
+    pub command: String,
+    pub description: String,
+    #[serde(default)]
+    pub usage: String,
+    #[serde(default)]
+    pub example: String,
+}
+
+/// AI가 만든 한국어 가이드
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Guide {
+    pub summary: String,
+    #[serde(default)]
+    pub use_cases: Vec<String>,
+    #[serde(default)]
+    pub commands: Vec<GuideCommand>,
+    #[serde(default)]
+    pub tips: Vec<String>,
+    #[serde(default)]
+    pub cautions: Vec<String>,
+    #[serde(default)]
+    pub generated_at: u64,
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStatus {
+    pub cli_found: bool,
+    pub logged_in: bool,
+    pub detail: String,
 }
 
 #[derive(Serialize, Clone, Debug)]

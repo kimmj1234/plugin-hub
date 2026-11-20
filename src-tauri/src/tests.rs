@@ -122,6 +122,54 @@ fn real_scan() {
 }
 
 #[test]
+fn parses_slash_command_frontmatter() {
+    let fm = scanner::parse_frontmatter(
+        "---\nname: deploy\ndescription: '앱을 배포한다'\nargument-hint: \"<환경> [--dry-run]\"\ndisable-model-invocation: true\nexamples:\n  - utterance: \"배포해줘\"\n    intent: \"deploy\"\n  - utterance: '왜 실패했어?'\n---\n본문",
+    )
+    .unwrap();
+    assert_eq!(fm.name.as_deref(), Some("deploy"));
+    assert_eq!(fm.description.as_deref(), Some("앱을 배포한다"));
+    assert_eq!(fm.argument_hint.as_deref(), Some("<환경> [--dry-run]"));
+    assert!(fm.user_invocable);
+    assert!(!fm.model_invocable);
+    assert_eq!(fm.examples, vec!["배포해줘", "왜 실패했어?"]);
+
+    let fm = scanner::parse_frontmatter("---\nname: x\nuser-invocable: false\n---\n").unwrap();
+    assert!(!fm.user_invocable);
+    assert!(fm.model_invocable);
+    assert!(scanner::parse_frontmatter("frontmatter 없음").is_none());
+}
+
+#[test]
+fn tracks_new_and_updated_catalog_entries() {
+    use crate::catalog::track_changes_for_test as track;
+    use crate::model::{CatalogChange, CatalogEntry};
+    let dir = temp_dir("seen");
+    let entry = |id: &str, v: &str| CatalogEntry {
+        plugin_id: id.into(),
+        name: id.into(),
+        description: String::new(),
+        marketplace: "m".into(),
+        version: Some(v.into()),
+        source_url: None,
+        installable: true,
+        change: CatalogChange::default(),
+    };
+    // 처음 실행: 모두 본 것으로 기록, NEW 표시 없음
+    let mut a = vec![entry("a@m", "1.0.0"), entry("b@m", "1.0.0")];
+    let (n, u, first) = track(&mut a, &dir);
+    assert_eq!((n, u, first), (0, 0, true));
+    // 다음 실행: c는 새로 생김, b는 버전이 올라감
+    let mut b = vec![entry("a@m", "1.0.0"), entry("b@m", "1.1.0"), entry("c@m", "0.1.0")];
+    let (n, u, first) = track(&mut b, &dir);
+    assert_eq!((n, u, first), (1, 1, false));
+    assert!(b[2].change.is_new);
+    assert!(b[1].change.updated);
+    assert!(!b[0].change.is_new && !b[0].change.updated);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn rejects_unsafe_ids() {
     use crate::cli::validate_id;
     assert!(validate_id("axhub@axhub").is_ok());
