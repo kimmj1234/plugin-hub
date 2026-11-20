@@ -38,3 +38,6 @@ Desktop.ini
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# 로컬 빌드 결과물 (GitHub Releases로 배포)
+release/
