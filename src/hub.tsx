@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
-import type { Diagnostic, Group, HubState, Plugin, Snapshot } from "./types";
+import type { Catalog, Diagnostic, Group, HubState, Plugin, Snapshot } from "./types";
 
 export interface Toast {
   id: number;
@@ -26,7 +26,15 @@ interface HubCtx {
   update: (p: Plugin) => Promise<void>;
   setGroups: (groups: Group[]) => Promise<void>;
   withBusy: <T>(key: string, label: string, fn: () => Promise<T>) => Promise<T | undefined>;
+  catalog: Catalog | null;
+  catalogLoading: boolean;
+  catalogError: string | null;
+  /** 마켓플레이스 원본까지 다시 받아 목록을 갱신 */
+  refreshCatalog: (remote: boolean) => Promise<void>;
 }
+
+/** 마켓플레이스 원본을 다시 받아 새 플러그인·업데이트를 확인하는 주기 */
+const REMOTE_REFRESH_MS = 30 * 60 * 1000;
 
 const Ctx = createContext<HubCtx | null>(null);
 
@@ -44,6 +52,11 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState<Record<string, string>>({});
   const seenDiag = useRef<Set<string> | null>(null);
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const flagged = useRef<Set<string> | null>(null);
+  const catalogBusy = useRef(false);
   const toastId = useRef(0);
 
   const toast = useCallback((kind: Toast["kind"], text: string) => {
@@ -192,6 +205,52 @@ export function HubProvider({ children }: { children: ReactNode }) {
     [snap, withBusy, toast, reportCli, update, toggle, refresh],
   );
 
+  const refreshCatalog = useCallback(
+    async (remote: boolean) => {
+      if (catalogBusy.current) return;
+      catalogBusy.current = true;
+      setCatalogLoading(true);
+      try {
+        if (remote) {
+          try {
+            await api.updateMarketplaces();
+          } catch (e) {
+            // 네트워크 문제 등으로 실패해도 로컬 목록은 보여준다
+            console.warn(e);
+          }
+        }
+        const c = await api.catalog(true);
+        // 실시간 반영: 이번에 새로 생겼거나 업데이트된 플러그인을 알린다.
+        const now = new Set(c.entries.filter((e) => e.isNew || e.updated).map((e) => e.pluginId));
+        if (flagged.current) {
+          const fresh = c.entries.filter((e) => now.has(e.pluginId) && !flagged.current!.has(e.pluginId));
+          const n = fresh.filter((e) => e.isNew).length;
+          const u = fresh.length - n;
+          if (n || u) toast("info", `플러그인 찾기: 새 플러그인 ${n}개, 업데이트 ${u}개가 반영되었습니다`);
+        }
+        flagged.current = now;
+        setCatalog(c);
+        setCatalogError(null);
+      } catch (e) {
+        setCatalogError(errorText(e));
+      } finally {
+        catalogBusy.current = false;
+        setCatalogLoading(false);
+      }
+    },
+    [toast],
+  );
+
+  useEffect(() => {
+    refreshCatalog(false);
+    const un = listen("hub://catalog-changed", () => refreshCatalog(false));
+    const timer = setInterval(() => refreshCatalog(true), REMOTE_REFRESH_MS);
+    return () => {
+      un.then((f) => f());
+      clearInterval(timer);
+    };
+  }, [refreshCatalog]);
+
   const setGroups = useCallback(
     async (g: Group[]) => {
       setGroupsState(g);
@@ -206,7 +265,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy }}
+      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog }}
     >
       {children}
     </Ctx.Provider>

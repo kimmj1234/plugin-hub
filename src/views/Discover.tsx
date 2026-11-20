@@ -1,57 +1,97 @@
 import { useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api, cliMessage, errorText } from "../api";
+import { api, cliMessage } from "../api";
 import { useHub } from "../hub";
-import type { AcceptPrompt, Catalog, CatalogEntry } from "../types";
+import type { AcceptPrompt, CatalogEntry } from "../types";
+import { CATEGORIES, OTHER, POPULARITY_DATE, categorize, categoryById, formatStars, koDescription, stars, topPopular } from "../catalogMeta";
+import { GuidePanel } from "../components/GuidePanel";
 
 const PAGE = 60;
+type Sort = "popular" | "new" | "name";
+type Filter = "all" | "fresh" | "installed";
+
+interface Row extends CatalogEntry {
+  cats: string[];
+  stars: number | null;
+  ko: string | null;
+}
 
 export function Discover() {
-  const { snap, refresh, toast, withBusy, busy } = useHub();
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog } = useHub();
   const [query, setQuery] = useState("");
+  const [cat, setCat] = useState<string>("all");
   const [mkt, setMkt] = useState("");
+  const [sort, setSort] = useState<Sort>("popular");
+  const [filter, setFilter] = useState<Filter>("all");
   const [limit, setLimit] = useState(PAGE);
-  const [selected, setSelected] = useState<CatalogEntry | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<CatalogEntry | null>(null);
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
 
-  const load = async (refreshIt: boolean) => {
-    setLoading(true);
-    setError(null);
-    try {
-      setCatalog(await api.catalog(refreshIt));
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setLoading(false);
-    }
+  // 설치 상태: 터미널(~/.claude)과 Claude 앱(계정 동기화)을 모두 반영한다.
+  const cliIds = useMemo(() => new Set(snap?.plugins.filter((p) => p.surface === "cli" && p.installed).map((p) => p.id)), [snap]);
+  const appNames = useMemo(
+    () => new Set(snap?.plugins.filter((p) => p.surface === "desktop").flatMap((p) => [p.displayName.toLowerCase(), p.id.toLowerCase()])),
+    [snap],
+  );
+  const installedWhere = (e: CatalogEntry) => {
+    const where: string[] = [];
+    if (cliIds.has(e.pluginId)) where.push("터미널");
+    if (appNames.has(e.name.toLowerCase()) || appNames.has(e.pluginId.toLowerCase())) where.push("Claude 앱");
+    return where;
   };
 
-  useEffect(() => {
-    load(false);
-  }, []);
+  const rows: Row[] = useMemo(
+    () =>
+      (catalog?.entries ?? []).map((e) => ({
+        ...e,
+        cats: categorize(e.name, e.description),
+        stars: stars(e.sourceUrl),
+        ko: koDescription(e.pluginId),
+      })),
+    [catalog],
+  );
 
-  const installedIds = new Set(snap?.plugins.filter((p) => p.surface === "cli" && p.installed).map((p) => p.id));
-  const markets = useMemo(() => [...new Set(catalog?.entries.map((e) => e.marketplace))].sort(), [catalog]);
+  const catCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) for (const c of r.cats) m.set(c, (m.get(c) ?? 0) + 1);
+    return m;
+  }, [rows]);
+
+  const markets = useMemo(() => [...new Set(rows.map((e) => e.marketplace))].sort(), [rows]);
+  const freshCount = rows.filter((r) => r.isNew || r.updated).length;
 
   const q = query.trim().toLowerCase();
-  const filtered = useMemo(() => {
-    const list = catalog?.entries ?? [];
-    return list
-      .filter((e) => (!mkt || e.marketplace === mkt) && (!q || `${e.name} ${e.description} ${e.pluginId}`.toLowerCase().includes(q)))
-      .sort((a, b) => {
-        if (!q) return 0;
-        const an = a.name.toLowerCase().includes(q) ? 0 : 1;
-        const bn = b.name.toLowerCase().includes(q) ? 0 : 1;
-        return an - bn;
-      });
-  }, [catalog, q, mkt]);
+  const inScope = useMemo(
+    () =>
+      rows.filter(
+        (e) =>
+          (cat === "all" || e.cats.includes(cat)) &&
+          (!mkt || e.marketplace === mkt) &&
+          (filter !== "fresh" || e.isNew || e.updated) &&
+          (filter !== "installed" || installedWhere(e).length > 0) &&
+          (!q || `${e.name} ${e.description} ${e.ko ?? ""} ${e.pluginId}`.toLowerCase().includes(q)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, cat, mkt, filter, q, cliIds, appNames],
+  );
 
-  useEffect(() => setLimit(PAGE), [q, mkt]);
+  const sorted = useMemo(() => {
+    const list = [...inScope];
+    if (sort === "popular") list.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
+    else if (sort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
+    else list.sort((a, b) => Number(b.isNew || b.updated) - Number(a.isNew || a.updated) || b.firstSeen - a.firstSeen);
+    if (q) list.sort((a, b) => Number(!a.name.toLowerCase().includes(q)) - Number(!b.name.toLowerCase().includes(q)));
+    return list;
+  }, [inScope, sort, q]);
+
+  const top = useMemo(() => (q || filter !== "all" ? [] : topPopular(inScope, 5)), [inScope, q, filter]);
+  const topIds = new Set(top.map((t) => t.pluginId));
+  const rest = sorted.filter((e) => !topIds.has(e.pluginId));
+  const selected = rows.find((r) => r.pluginId === selectedId) ?? null;
+
+  useEffect(() => setLimit(PAGE), [q, mkt, cat, filter, sort]);
 
   const doInstall = async (entry: CatalogEntry, sha?: string) => {
     setConfirm(null);
@@ -73,49 +113,99 @@ export function Discover() {
     if (r.ok) {
       setMktSource("");
       refresh();
-      load(true);
+      refreshCatalog(false);
     }
   };
+
+  const renderRow = (e: Row, rank?: number) => {
+    const where = installedWhere(e);
+    return (
+      <li key={e.pluginId} className={`${selectedId === e.pluginId ? "selected" : ""} ${rank ? "top" : ""}`} onClick={() => setSelectedId(e.pluginId)}>
+        {rank && <div className="rank">{rank}</div>}
+        <div className="pl-main">
+          <div className="pl-name">
+            {e.name}
+            {e.isNew && <span className="badge new">NEW</span>}
+            {e.updated && <span className="badge upd">업데이트</span>}
+          </div>
+          <div className="pl-desc">{e.ko ?? e.description}</div>
+          <div className="pl-sub">
+            {e.cats.slice(0, 3).map((c) => categoryById(c).label).join(" · ")}
+            {" · "}★ {formatStars(e.stars)}
+            {e.version && ` · v${e.version}`}
+          </div>
+        </div>
+        {where.length > 0 ? (
+          <span className="badge ok" title={`${where.join(", ")}에 설치됨`}>{where.join("·")} 설치됨</span>
+        ) : busy[e.pluginId] ? (
+          <span className="spinner-text">{busy[e.pluginId]}…</span>
+        ) : (
+          e.installable && <button onClick={(ev) => { ev.stopPropagation(); setConfirm(e); }}>설치</button>
+        )}
+      </li>
+    );
+  };
+
+  const catList = [...CATEGORIES, OTHER].filter((c) => catCounts.get(c.id));
 
   return (
     <div className="split">
       <div className="pane list-pane wide">
         <div className="toolbar">
-          <input className="search" autoFocus placeholder="이름이나 용도로 검색 (예: test, deploy, design)" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="search" autoFocus placeholder="이름·용도로 검색 (한국어 가능: 배포, 테스트, 디자인…)" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button onClick={() => refreshCatalog(true)} disabled={catalogLoading} title="마켓플레이스 원본까지 다시 받아 새 플러그인·업데이트를 확인합니다">
+            {catalogLoading ? "확인 중…" : "새로 확인"}
+          </button>
+        </div>
+
+        <div className="chips" role="tablist" aria-label="용도별 분류">
+          <button className={`chip ${cat === "all" ? "active" : ""}`} onClick={() => setCat("all")}>전체 <span className="count">{rows.length.toLocaleString()}</span></button>
+          {catList.map((c) => (
+            <button key={c.id} className={`chip ${cat === c.id ? "active" : ""}`} onClick={() => setCat(c.id)}>
+              {c.icon} {c.label} <span className="count">{catCounts.get(c.id)}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="toolbar small-row">
+          <div className="seg">
+            <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>모두</button>
+            <button className={filter === "fresh" ? "active" : ""} onClick={() => setFilter("fresh")}>새로 생김·업데이트 {freshCount > 0 && <span className="count bad">{freshCount}</span>}</button>
+            <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>설치됨</button>
+          </div>
+          <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="정렬">
+            <option value="popular">인기순 (GitHub ★)</option>
+            <option value="new">최근 추가순</option>
+            <option value="name">이름순</option>
+          </select>
           <select value={mkt} onChange={(e) => setMkt(e.target.value)} aria-label="마켓플레이스">
             <option value="">모든 마켓플레이스</option>
             {markets.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
-          <button onClick={() => load(true)} disabled={loading}>{loading ? "불러오는 중…" : "새로고침"}</button>
         </div>
 
         <div className="muted small status-line">
-          {catalog && `${filtered.length.toLocaleString()}개 / 전체 ${catalog.entries.length.toLocaleString()}개`}
+          {catalog && `${sorted.length.toLocaleString()}개`}
+          {catalog && ` · ${new Date(catalog.fetchedAt).toLocaleTimeString()} 갱신 · 30분마다 자동 확인`}
           {catalog?.origin === "local-cache" && " · CLI가 없어 로컬 캐시를 보여줍니다 (설치 불가)"}
         </div>
 
-        {error && <div className="note bad">{error}</div>}
-        {loading && !catalog && <div className="empty">마켓플레이스에서 목록을 불러오는 중입니다…</div>}
+        {catalogError && <div className="note bad">{catalogError}</div>}
+        {catalogLoading && !catalog && <div className="empty">마켓플레이스에서 목록을 불러오는 중입니다…</div>}
 
-        <ul className="plugin-list">
-          {filtered.slice(0, limit).map((e) => (
-            <li key={e.pluginId} className={selected?.pluginId === e.pluginId ? "selected" : ""} onClick={() => setSelected(e)}>
-              <div className="pl-main">
-                <div className="pl-name">{e.name}</div>
-                <div className="pl-desc">{e.description}</div>
-                <div className="pl-sub">{e.marketplace}{e.version && ` · v${e.version}`}</div>
-              </div>
-              {installedIds.has(e.pluginId) ? (
-                <span className="badge ok">설치됨</span>
-              ) : busy[e.pluginId] ? (
-                <span className="spinner-text">{busy[e.pluginId]}…</span>
-              ) : (
-                e.installable && <button onClick={(ev) => { ev.stopPropagation(); setConfirm(e); }}>설치</button>
-              )}
-            </li>
-          ))}
-        </ul>
-        {filtered.length > limit && <button className="more" onClick={() => setLimit(limit + PAGE)}>더 보기</button>}
+        {top.length > 0 && (
+          <section className="top-section">
+            <h3>
+              {cat === "all" ? "전체" : categoryById(cat).label} 인기 TOP {top.length}
+              <span className="muted small"> GitHub 스타 기준 ({POPULARITY_DATE} 수집)</span>
+            </h3>
+            <ul className="plugin-list">{top.map((e, i) => renderRow(e as Row, i + 1))}</ul>
+          </section>
+        )}
+
+        <ul className="plugin-list">{rest.slice(0, limit).map((e) => renderRow(e))}</ul>
+        {rest.length > limit && <button className="more" onClick={() => setLimit(limit + PAGE)}>더 보기 ({(rest.length - limit).toLocaleString()}개 남음)</button>}
+        {catalog && sorted.length === 0 && <div className="empty">조건에 맞는 플러그인이 없습니다.</div>}
 
         <div className="add-mkt">
           <h3>마켓플레이스 추가</h3>
@@ -130,16 +220,25 @@ export function Discover() {
       <div className="pane detail-pane">
         {selected ? (
           <div className="detail">
-            <h2>{selected.name}</h2>
+            <h2>
+              {selected.name}
+              {selected.isNew && <span className="badge new">NEW</span>}
+              {selected.updated && <span className="badge upd">업데이트</span>}
+            </h2>
             <div className="muted mono">{selected.pluginId}</div>
-            <p className="desc">{selected.description}</p>
+            {selected.ko && <p className="desc ko">{selected.ko}</p>}
+            <p className={selected.ko ? "muted small" : "desc"}>{selected.description}</p>
             <div className="meta">
+              {selected.cats.map((c) => (
+                <button key={c} className="badge chip-link" onClick={() => setCat(c)}>{categoryById(c).icon} {categoryById(c).label}</button>
+              ))}
+              <span className="badge">★ {formatStars(selected.stars)}</span>
               <span className="badge">{selected.marketplace}</span>
               {selected.version && <span className="badge">v{selected.version}</span>}
             </div>
             <div className="actions">
-              {installedIds.has(selected.pluginId) ? (
-                <span className="badge ok">이미 설치됨 · '설치된 플러그인'에서 사용법을 볼 수 있습니다</span>
+              {installedWhere(selected).length > 0 ? (
+                <span className="badge ok">{installedWhere(selected).join("·")}에 설치됨 · '설치된 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
               ) : (
                 selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => setConfirm(selected)}>설치</button>
               )}
@@ -147,12 +246,20 @@ export function Discover() {
                 <button onClick={() => openUrl(selected.sourceUrl!)}>소스 저장소 열기</button>
               )}
             </div>
+            <section>
+              <h3>한국어 가이드</h3>
+              <GuidePanel id={selected.pluginId} version={selected.version} installed={false} name={selected.name} description={selected.description} />
+            </section>
             <p className="note">
               설치하면 공식 <code>claude plugin install</code> 명령으로 사용자 범위에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.
             </p>
           </div>
         ) : (
-          <div className="empty-detail">플러그인을 고르면 자세한 정보를 보여줍니다.</div>
+          <div className="empty-detail">
+            왼쪽에서 분야를 고르면 그 분야의 인기 플러그인부터 보여줍니다.
+            <br />
+            플러그인을 누르면 한국어 설명과 설치 버튼이 나옵니다.
+          </div>
         )}
       </div>
 

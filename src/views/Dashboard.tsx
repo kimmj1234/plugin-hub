@@ -1,7 +1,7 @@
 import { useHub } from "../hub";
 import { DiagnosticItem } from "../components/DiagnosticItem";
 
-export function Dashboard({ go }: { go: (v: "installed" | "discover" | "diagnostics") => void }) {
+export function Dashboard({ go }: { go: (v: "installed" | "commands" | "discover" | "diagnostics") => void }) {
   const { snap } = useHub();
   if (!snap) return null;
   const { env } = snap;

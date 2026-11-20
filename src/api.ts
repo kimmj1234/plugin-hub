@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Catalog, CliResult, HubState, Snapshot, Surface } from "./types";
+import type { AiStatus, Catalog, CliResult, Guide, HubState, Snapshot, Surface } from "./types";
 
 export const api = {
   scan: () => invoke<Snapshot>("scan"),
@@ -16,6 +16,18 @@ export const api = {
   catalog: (refresh = false) => invoke<Catalog>("get_catalog", { refresh }),
   readme: (id: string, surface: Surface) =>
     invoke<string | null>("read_readme", { id, surface }),
+  updateMarketplaces: () => invoke<string>("update_marketplaces"),
+  aiStatus: () => invoke<AiStatus>("ai_status"),
+  openLogin: () => invoke<void>("open_login"),
+  getGuide: (id: string, version: string | null) => invoke<Guide | null>("get_guide", { id, version }),
+  generateGuide: (args: { id: string; surface?: Surface | null; version?: string | null; name?: string | null; description?: string | null }) =>
+    invoke<Guide>("generate_guide", {
+      id: args.id,
+      surface: args.surface ?? null,
+      version: args.version ?? null,
+      name: args.name ?? null,
+      description: args.description ?? null,
+    }),
   getGroups: () => invoke<HubState>("get_groups"),
   saveGroups: (state: HubState) => invoke<void>("save_groups", { state }),
 };

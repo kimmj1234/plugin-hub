@@ -3,9 +3,17 @@
  * Tauri 밖(`npm run dev` 후 브라우저)에서 열면 Rust 대신 가짜 데이터로 응답한다.
  * UI 확인과 README 스크린샷용이며, 실제 파일은 건드리지 않는다.
  */
-import type { Catalog, CatalogEntry, Diagnostic, Plugin, Snapshot } from "./types";
+import type { Catalog, CatalogEntry, Component, Diagnostic, Guide, Plugin, Snapshot } from "./types";
 
-const comp = (name: string, description: string) => ({ name, description });
+const comp = (name: string, description: string, extra: Partial<Component> = {}): Component => ({
+  name,
+  description,
+  argumentHint: null,
+  userInvocable: true,
+  modelInvocable: true,
+  examples: [],
+  ...extra,
+});
 
 function plugin(p: Partial<Plugin> & Pick<Plugin, "id">): Plugin {
   const [name, marketplace] = p.id.split("@");
@@ -41,9 +49,10 @@ const plugins: Plugin[] = [
     repository: "https://github.com/obra/superpowers",
     components: {
       skills: [
-        comp("test-driven-development", "기능을 구현하기 전에 실패하는 테스트부터 작성할 때 사용"),
+        comp("test-driven-development", "기능을 구현하기 전에 실패하는 테스트부터 작성할 때 사용", { examples: ["로그인 기능을 TDD로 만들어줘", "테스트 먼저 써줘"] }),
         comp("systematic-debugging", "버그 원인을 추측하지 않고 단계적으로 좁혀 갈 때 사용"),
-        comp("brainstorming", "구현 전에 요구사항과 설계를 정리할 때 사용"),
+        comp("brainstorming", "구현 전에 요구사항과 설계를 정리할 때 사용", { argumentHint: "<아이디어>" }),
+        comp("using-superpowers", "다른 스킬을 언제 쓸지 판단하는 내부 스킬", { userInvocable: false }),
       ],
       commands: [],
       agents: [comp("code-reviewer", "변경 사항을 리뷰하는 에이전트")],
@@ -62,7 +71,13 @@ const plugins: Plugin[] = [
     version: "0.4.0",
     latestVersion: "0.6.0",
     description: "커밋 메시지와 PR 설명을 프로젝트 규칙에 맞게 작성",
-    components: { skills: [comp("deploy", "스테이징에 배포")], commands: [comp("commit", "변경 사항으로 커밋 메시지 작성")], agents: [], hooks: [], mcpServers: [] },
+    components: {
+      skills: [comp("deploy", "스테이징에 배포", { argumentHint: "<환경>", modelInvocable: false })],
+      commands: [comp("commit", "변경 사항으로 커밋 메시지 작성", { argumentHint: "[메시지]" }), comp("pr", "현재 브랜치로 PR 설명 작성", { argumentHint: "<base 브랜치>" })],
+      agents: [],
+      hooks: [],
+      mcpServers: [],
+    },
   }),
   plugin({
     id: "deploy-kit@team-tools",
@@ -128,15 +143,22 @@ const catalogEntries: CatalogEntry[] = [
   ["data", "Write SQL, explore datasets, and generate insights faster", "1.1.0"],
   ["design", "Accelerate design workflows — critique, design systems, UX writing", "1.2.0"],
   ["remotion", "Remotion video creation skills — best practices, animations, audio", "1.0.2"],
-].map(([name, description, version]) => ({
+  ["mattpocock-skills", "Skills for TypeScript developers", "1.0.0", "https://github.com/mattpocock/skills"],
+  ["humanizer", "Make AI-written text sound natural", "2.1.0", "https://github.com/blader/humanizer"],
+].map(([name, description, version, url], i) => ({
   pluginId: `${name}@anthropic-plugin-directory`,
   name,
   description,
   marketplace: "anthropic-plugin-directory",
   version,
-  sourceUrl: `https://github.com/example/${name}`,
+  sourceUrl: url ?? (name === "superpowers" ? "https://github.com/obra/superpowers" : "https://github.com/anthropics/claude-plugins-official"),
   installable: true,
+  isNew: i === 11,
+  updated: i === 4,
+  firstSeen: i === 11 ? Date.now() : 0,
 }));
+
+const guides: Record<string, Guide> = {};
 
 let groups = { groups: [{ id: "g1", name: "매일 쓰는 것", pluginIds: ["superpowers@anthropic-plugin-directory", "frontend-design@claude-plugins-official"] }, { id: "g2", name: "팀 배포", pluginIds: ["commit-helper@team-tools", "deploy-kit@team-tools"] }] };
 
@@ -179,7 +201,30 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
       return ok(`Added marketplace ${args.source}`);
     case "get_catalog":
       await wait(300);
-      return { entries: catalogEntries, origin: "cli", fetchedAt: Date.now() } satisfies Catalog;
+      return { entries: catalogEntries, origin: "cli", fetchedAt: Date.now(), newCount: 1, updatedCount: 1, firstRun: false } satisfies Catalog;
+    case "update_marketplaces":
+      await wait(500);
+      return "updated";
+    case "ai_status":
+      return { cliFound: true, loggedIn: true, detail: "로그인됨" };
+    case "open_login":
+      return null;
+    case "get_guide":
+      return guides[args.id] ?? null;
+    case "generate_guide": {
+      await wait(1500);
+      const g: Guide = {
+        summary: `${args.id.split("@")[0]}는 (미리보기 예시) 개발 흐름을 정리해 주는 플러그인입니다. 테스트 작성과 디버깅을 단계별로 안내합니다.`,
+        useCases: ["새 기능을 만들기 전에 테스트부터 쓰고 싶을 때", "원인을 모르는 버그를 체계적으로 좁혀 갈 때"],
+        commands: [{ command: "/superpowers:brainstorming <아이디어>", description: "구현 전에 요구사항을 정리합니다", usage: "아이디어를 한 줄로 적으면 질문을 이어 가며 설계를 다듬습니다", example: "/superpowers:brainstorming 사내 공지 앱" }],
+        tips: ["명령을 치지 않아도 '테스트 먼저 써줘'처럼 말하면 자동으로 스킬이 쓰입니다"],
+        cautions: ["세션 시작 시 훅이 자동 실행됩니다"],
+        generatedAt: Date.now(),
+        version: args.version ?? null,
+      };
+      guides[args.id] = g;
+      return g;
+    }
     case "read_readme":
       return "# 사용 예시\n\n이 README는 **미리보기 모드**의 예시입니다.\n\n- 설치 후 새 세션을 시작하세요\n- `/plugin:skill` 형식으로 직접 부를 수 있습니다\n\n```bash\nclaude plugin list\n```";
     case "get_groups":

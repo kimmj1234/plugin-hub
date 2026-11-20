@@ -17,6 +17,10 @@ export interface EnvInfo {
 export interface Component {
   name: string;
   description: string;
+  argumentHint: string | null;
+  userInvocable: boolean;
+  modelInvocable: boolean;
+  examples: string[];
 }
 
 export interface Components {
@@ -91,12 +95,41 @@ export interface CatalogEntry {
   version: string | null;
   sourceUrl: string | null;
   installable: boolean;
+  isNew: boolean;
+  updated: boolean;
+  firstSeen: number;
 }
 
 export interface Catalog {
   entries: CatalogEntry[];
   origin: "cli" | "local-cache";
   fetchedAt: number;
+  newCount: number;
+  updatedCount: number;
+  firstRun: boolean;
+}
+
+export interface GuideCommand {
+  command: string;
+  description: string;
+  usage: string;
+  example: string;
+}
+
+export interface Guide {
+  summary: string;
+  useCases: string[];
+  commands: GuideCommand[];
+  tips: string[];
+  cautions: string[];
+  generatedAt: number;
+  version: string | null;
+}
+
+export interface AiStatus {
+  cliFound: boolean;
+  loggedIn: boolean;
+  detail: string;
 }
 
 export interface AcceptPrompt {
