@@ -1,7 +1,3 @@
-/**
- * 카탈로그 부가 정보: 용도별 분류, 인기도(GitHub 스타), 한국어 설명.
- * 카탈로그 원본에는 분류와 설치 수가 없어서 앱이 직접 계산한다.
- */
 import koCatalog from "./data/ko-catalog.json";
 import popularity from "./data/popularity.json";
 
@@ -12,7 +8,6 @@ export interface Category {
   re: RegExp;
 }
 
-/** 이름·설명의 키워드로 분류한다. 한 플러그인이 여러 분류에 들어갈 수 있다. */
 export const CATEGORIES: Category[] = [
   { id: "dev", label: "개발 워크플로", icon: "🛠️", re: /feature[- ]dev|develop|refactor|codebase|scaffold|boilerplate|framework|laravel|react|next\.?js|vue|svelte|django|rails|flutter|swift|android|ios\b|mobile app|backend|frontend dev|monorepo|개발/i },
   { id: "review", label: "코드 리뷰·품질", icon: "🔍", re: /review|lint|code quality|simplif|clean[- ]?code|best practice|pull request|\bpr\b|refine|리뷰|품질/i },
@@ -48,13 +43,11 @@ export function categoryById(id: string): Category {
 const repos = (popularity as { collectedAt: string; repos: Record<string, number> }).repos;
 export const POPULARITY_DATE = (popularity as { collectedAt: string }).collectedAt;
 
-/** https://github.com/owner/repo(.git)(/...) → owner/repo */
 export function repoKey(url: string | null | undefined): string | null {
   const m = /github\.com\/([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?]|$)/i.exec(url ?? "");
   return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
 }
 
-/** 소스 저장소의 GitHub 스타 수. 모르면 null */
 export function stars(url: string | null | undefined): number | null {
   const k = repoKey(url);
   return k && k in repos ? repos[k] : null;
@@ -69,15 +62,10 @@ export function formatStars(n: number | null): string {
 
 const ko = koCatalog as Record<string, string>;
 
-/** 내장된 한국어 설명 (공식·Anthropic 검수 플러그인) */
 export function koDescription(pluginId: string): string | null {
   return ko[pluginId] ?? null;
 }
 
-/**
- * 인기 TOP N: 스타 수 순서. 한 저장소에 플러그인이 여러 개 있으면
- * 같은 스타 수를 공유하므로, 다양성을 위해 저장소당 최대 2개까지만 뽑는다.
- */
 export function topPopular<T extends { sourceUrl: string | null }>(list: T[], n = 5): T[] {
   const ranked = list
     .map((e) => ({ e, s: stars(e.sourceUrl) }))

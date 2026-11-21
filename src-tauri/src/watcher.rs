@@ -1,8 +1,3 @@
-//! 설정 파일 실시간 감시.
-//! - 설치·켜짐 상태가 바뀌면 `hub://changed` (Claude 앱에서 추가·삭제한 경우 포함)
-//! - 카탈로그(디렉터리 캐시, 마켓플레이스 목록)가 바뀌면 `hub://catalog-changed`
-//! 터미널에서 `claude plugin ...`을 실행하거나 Claude 앱에서 바꿔도 화면이 바로 갱신된다.
-
 use crate::paths;
 use notify::{Event, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -42,7 +37,6 @@ fn control() -> &'static Mutex<Option<mpsc::Sender<Msg>>> {
     TX.get_or_init(|| Mutex::new(None))
 }
 
-/// 새로 등록한 폴더도 감시 대상에 넣는다.
 pub fn watch_project(dir: &Path) {
     if let Ok(g) = control().lock() {
         if let Some(tx) = g.as_ref() {
@@ -51,7 +45,6 @@ pub fn watch_project(dir: &Path) {
     }
 }
 
-/// 폴더의 .claude가 있으면 그것을, 없으면 폴더 자체를 감시해 .claude가 생길 때를 잡는다.
 fn watch_project_dir(w: &mut notify::RecommendedWatcher, dir: &Path) {
     let claude = dir.join(".claude");
     let target = if claude.is_dir() { claude } else { dir.to_path_buf() };
@@ -107,7 +100,6 @@ pub fn start(app: AppHandle, projects: Vec<PathBuf>) {
                 }
                 Msg::Fs(ev) => ev,
             };
-            // 폴더에 .claude가 새로 생기면 그 안도 감시한다.
             for p in &ev.paths {
                 if p.file_name().map(|n| n == ".claude").unwrap_or(false) && p.is_dir() {
                     let _ = watcher.watch(p, RecursiveMode::NonRecursive);
@@ -118,7 +110,6 @@ pub fn start(app: AppHandle, projects: Vec<PathBuf>) {
             if !state && !catalog {
                 continue;
             }
-            // 짧은 시간에 몰리는 이벤트를 한 번으로 합친다.
             let deadline = Instant::now() + Duration::from_millis(350);
             while let Ok(more) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 match more {

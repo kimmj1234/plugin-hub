@@ -1,6 +1,3 @@
-//! 실제 ~/.claude 를 건드리지 않도록 CLAUDE_CONFIG_DIR을 임시 폴더로 바꿔 검증한다.
-//! 환경 변수는 프로세스 전역이라 하나의 테스트 안에서 순서대로 실행한다.
-
 use crate::{scanner, settings};
 use std::fs;
 use std::path::PathBuf;
@@ -22,12 +19,10 @@ fn scan_rules_and_toggle_on_fake_home() {
     let backups = temp_dir("backups");
     unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
 
-    // 플러그인 a: 정상 설치 + 켜짐, 스킬 'deploy' + 훅
     let a = home.join("plugins/cache/mk/a/1.0.0");
     write(a.join(".claude-plugin/plugin.json"), r#"{"name":"a","version":"1.0.0","description":"A plugin"}"#);
     write(a.join("skills/deploy/SKILL.md"), "---\nname: deploy\ndescription: 배포한다\n---\n본문");
     write(a.join("hooks/hooks.json"), r#"{"hooks":{"SessionStart":[]}}"#);
-    // 플러그인 b: 정상 설치 + 켜짐, 같은 스킬 이름 'deploy' → 충돌 경고
     let b = home.join("plugins/cache/mk/b/1.0.0");
     write(b.join(".claude-plugin/plugin.json"), r#"{"name":"b","version":"1.0.0"}"#);
     write(b.join("skills/deploy/SKILL.md"), "---\nname: deploy\ndescription: >\n  여러 줄\n  설명\n---\n");
@@ -75,7 +70,6 @@ fn scan_rules_and_toggle_on_fake_home() {
     assert!(!ids.contains(&"update:b@mk"), "같은 버전은 업데이트 아님");
     assert_eq!(snap.diagnostics[0].severity, "error", "오류가 먼저 정렬");
 
-    // 끄기: 다른 설정 키와 순서가 보존되어야 한다
     settings::set_enabled("a@mk", Some(false), &backups).unwrap();
     let text = fs::read_to_string(home.join("settings.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -86,12 +80,10 @@ fn scan_rules_and_toggle_on_fake_home() {
     assert_eq!(keys, ["theme", "enabledPlugins", "other"]);
     assert_eq!(fs::read_dir(&backups).unwrap().count(), 1, "수정 전 백업");
 
-    // 설정 찌꺼기 제거 후에는 dangling 진단이 사라진다
     settings::set_enabled("ghost@mk", None, &backups).unwrap();
     let snap = scanner::scan(&[]);
     assert!(!snap.diagnostics.iter().any(|d| d.id == "dangling:ghost@mk"));
 
-    // 형식이 깨진 settings.json은 수정하지 않는다
     write(home.join("settings.json"), "{ broken");
     assert!(settings::set_enabled("a@mk", Some(true), &backups).is_err());
     assert_eq!(fs::read_to_string(home.join("settings.json")).unwrap(), "{ broken");
@@ -99,7 +91,6 @@ fn scan_rules_and_toggle_on_fake_home() {
     assert!(snap.settings_error.is_some());
     assert!(snap.diagnostics.iter().any(|d| d.id == "settings-invalid"));
 
-    // 폴더별 설정: 공유(settings.json)와 개인(settings.local.json)
     write(home.join("settings.json"), r#"{"enabledPlugins":{"a@mk":true}}"#);
     let proj = temp_dir("proj");
     let folder = crate::model::ProjectFolder { path: proj.to_string_lossy().to_string(), name: "proj".into() };
@@ -114,15 +105,12 @@ fn scan_rules_and_toggle_on_fake_home() {
     assert_eq!(st.shared.get("a@mk"), Some(&false));
     assert_eq!(st.local.get("a@mk"), Some(&true));
     assert!(snap.diagnostics.iter().any(|d| d.id.starts_with("project-dangling:") && d.id.ends_with("nothere@mk")), "폴더에서만 켜진 미설치 플러그인");
-    // '기본값 따름'(None)은 항목을 지우고, 비면 enabledPlugins 키도 지운다
     settings::set_enabled_in(&local, "a@mk", None, &backups).unwrap();
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&local).unwrap()).unwrap();
     assert!(v.get("enabledPlugins").is_none());
-    // 없는 파일에 '기본값 따름'을 적용해도 파일을 만들지 않는다
     let other = temp_dir("proj2");
     settings::set_enabled_in(&crate::paths::project_settings(&other, true), "a@mk", None, &backups).unwrap();
     assert!(!other.join(".claude").exists());
-    // 사라진 폴더는 경고
     let gone = crate::model::ProjectFolder { path: "/nonexistent/pluginhub".into(), name: "gone".into() };
     let snap = scanner::scan(&[gone]);
     assert!(snap.diagnostics.iter().any(|d| d.id.starts_with("project-missing:")));
@@ -134,7 +122,6 @@ fn scan_rules_and_toggle_on_fake_home() {
     let _ = fs::remove_dir_all(&other);
 }
 
-/// 실제 환경 읽기 전용 점검: `cargo test real_scan -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn real_scan() {
@@ -185,11 +172,9 @@ fn tracks_new_and_updated_catalog_entries() {
         installable: true,
         change: CatalogChange::default(),
     };
-    // 처음 실행: 모두 본 것으로 기록, NEW 표시 없음
     let mut a = vec![entry("a@m", "1.0.0"), entry("b@m", "1.0.0")];
     let (n, u, first) = track(&mut a, &dir);
     assert_eq!((n, u, first), (0, 0, true));
-    // 다음 실행: c는 새로 생김, b는 버전이 올라감
     let mut b = vec![entry("a@m", "1.0.0"), entry("b@m", "1.1.0"), entry("c@m", "0.1.0")];
     let (n, u, first) = track(&mut b, &dir);
     assert_eq!((n, u, first), (1, 1, false));

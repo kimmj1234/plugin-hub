@@ -9,10 +9,6 @@ export const SOURCE_LABEL: Record<Source, string> = {
   none: "어디서도 켜지 않음",
 };
 
-/**
- * 폴더에서 실제로 적용되는 상태.
- * Claude Code 설정 우선순위: 폴더 개인(settings.local.json) > 폴더 공유(settings.json) > PC 전체(~/.claude/settings.json)
- */
 export function effective(p: Plugin, pr: ProjectState, userEnabled: Record<string, boolean>): { on: boolean; source: Source } {
   if (p.id in pr.local) return { on: pr.local[p.id], source: "local" };
   if (p.id in pr.shared) return { on: pr.shared[p.id], source: "project" };
@@ -20,7 +16,6 @@ export function effective(p: Plugin, pr: ProjectState, userEnabled: Record<strin
   return { on: false, source: "none" };
 }
 
-/** PC 전체 기본값(user 범위로 설치된 플러그인)의 켜짐 여부 */
 export function userEnabledMap(plugins: Plugin[]): Record<string, boolean> {
   const m: Record<string, boolean> = {};
   for (const p of plugins) if (p.surface === "cli" && (p.scope ?? "user") === "user") m[p.id] = p.enabled;

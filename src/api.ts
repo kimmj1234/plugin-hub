@@ -6,7 +6,6 @@ export const api = {
   scan: () => invoke<Snapshot>("scan"),
   setEnabled: (id: string, enabled: boolean, scope?: string | null, projectPath?: string | null) =>
     invoke<void>("set_enabled", { id, enabled, scope: scope ?? null, projectPath: projectPath ?? null }),
-  /** 폴더별 설정. value: true 켬 / false 끔 / null 기본값 따름 */
   setFolderEnabled: (id: string, projectPath: string, scope: "project" | "local", value: boolean | null) =>
     invoke<void>("set_folder_enabled", { id, projectPath, scope, value }),
   removeSetting: (id: string) => invoke<void>("remove_setting", { id }),
@@ -38,18 +37,15 @@ export const api = {
   addProject: (path: string) => invoke<HubState>("add_project", { path }),
   removeProject: (path: string) => invoke<HubState>("remove_project", { path }),
   suggestProjects: () => invoke<ProjectFolder[]>("suggest_projects"),
-  /** 폴더 선택 창 */
   pickFolder: async (): Promise<string | null> => {
     const r = await openDialog({ directory: true, multiple: false, title: "플러그인을 적용할 작업 폴더 선택" });
     return typeof r === "string" ? r : null;
   },
 };
 
-/** CLI 결과를 사람이 읽을 메시지로 */
 export function cliMessage(r: CliResult): string {
   const text = (r.ok ? r.stdout : r.stderr || r.stdout).trim();
   const lines = text.split("\n").filter(Boolean);
-  // --json 출력이면 한 줄 JSON에서 message/error를 꺼낸다
   for (const l of lines) {
     try {
       const v = JSON.parse(l);
@@ -58,7 +54,6 @@ export function cliMessage(r: CliResult): string {
         if (typeof msg === "string") return msg;
       }
     } catch {
-      /* 일반 텍스트 */
     }
   }
   return lines.slice(-3).join("\n") || (r.ok ? "완료" : `실패 (코드 ${r.code ?? "?"})`);

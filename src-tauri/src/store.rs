@@ -1,5 +1,3 @@
-//! 앱 자체 상태(폴더 그룹) 저장. Claude 설정과 분리해 앱 데이터 폴더에 둔다.
-
 use crate::model::HubState;
 use std::fs;
 use std::path::Path;

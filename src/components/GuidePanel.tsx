@@ -6,10 +6,6 @@ import { CopyButton } from "./CopyButton";
 
 let statusCache: AiStatus | null = null;
 
-/**
- * AI가 만든 한국어 가이드. 한 번 만들면 앱 데이터 폴더에 저장되어 다시 부르지 않는다.
- * 설치된 플러그인은 구성 요소·README를 근거로, 설치 전 플러그인은 이름·설명만으로 만든다.
- */
 export function GuidePanel(props: {
   id: string;
   version: string | null;

@@ -1,6 +1,3 @@
-//! 공식 `claude plugin` CLI 호출.
-//! 설치·삭제·업데이트처럼 캐시와 마켓플레이스를 함께 다루는 작업은 직접 구현하지 않고 CLI에 맡긴다.
-
 use crate::model::{AcceptPrompt, CliInfo, CliResult};
 use crate::paths;
 use serde_json::Value;
@@ -49,8 +46,6 @@ pub fn find_bundled_cli() -> Option<CliInfo> {
     })
 }
 
-/// 명령 실행에 쓸 CLI. 터미널 CLI를 우선하고, 없으면 Claude 앱 내장 CLI를 쓴다.
-/// 둘 다 같은 ~/.claude 설정을 사용한다.
 pub fn active_cli() -> Option<CliInfo> {
     find_terminal_cli().or_else(find_bundled_cli)
 }
@@ -71,7 +66,6 @@ fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], timeout: Duration) -> Resul
         .spawn()
         .map_err(|e| format!("CLI 실행 실패: {e}"))?;
 
-    // 출력이 파이프 버퍼를 넘쳐 막히지 않도록 별도 스레드에서 읽는다.
     let mut so = child.stdout.take().unwrap();
     let mut se = child.stderr.take().unwrap();
     let t_out = std::thread::spawn(move || {
@@ -123,13 +117,11 @@ pub fn run(args: &[&str], timeout: Duration) -> Result<CliResult, String> {
     run_raw(Path::new(&cli.path), args, timeout)
 }
 
-/// 작업 폴더를 지정해 실행한다 (가이드 생성처럼 사용자 프로젝트 설정을 피해야 할 때).
 pub fn run_in(cwd: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
     let cli = active_cli().ok_or_else(|| "Claude Code CLI를 찾지 못했습니다.".to_string())?;
     run_raw_in(Path::new(&cli.path), cwd, args, timeout)
 }
 
-/// `--json` 출력에서 사용자 확인이 필요한 명령(shownCommand)을 찾는다.
 fn find_accept_prompt(stdout: &str) -> Option<AcceptPrompt> {
     for line in stdout.lines() {
         let Ok(v) = serde_json::from_str::<Value>(line.trim()) else {
@@ -159,7 +151,6 @@ fn find_key<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
     }
 }
 
-/// 플러그인 id(name@marketplace)로 쓸 수 있는 문자만 허용한다. 인자 주입 방지.
 pub fn validate_id(id: &str) -> Result<(), String> {
     let ok = !id.is_empty()
         && !id.starts_with('-')

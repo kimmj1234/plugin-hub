@@ -13,7 +13,6 @@ export function CopyButton({ text, label = "복사" }: { text: string; label?: s
           setDone(true);
           setTimeout(() => setDone(false), 1200);
         } catch {
-          /* 클립보드 권한이 없으면 무시 */
         }
       }}
     >

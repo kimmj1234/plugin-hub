@@ -22,7 +22,6 @@ struct AppState {
     catalog: Mutex<Option<Catalog>>,
 }
 
-/// 카탈로그 캐시 유지 시간
 const CATALOG_TTL_MS: u64 = 10 * 60 * 1000;
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -43,8 +42,6 @@ fn hub_state(app: &AppHandle) -> Result<HubState, String> {
     Ok(store::load(&data_dir(app)?))
 }
 
-/// 프론트에서 받은 폴더 경로는 사용자가 등록한 폴더이거나,
-/// 설치 기록(installed_plugins.json)에 남은 폴더일 때만 받아들인다. 임의 경로 쓰기 방지.
 fn allowed_project(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     let registered = hub_state(app)?.projects.iter().any(|p| p.path == path);
     let recorded = || {
@@ -69,8 +66,6 @@ async fn scan(app: AppHandle) -> Result<Snapshot, String> {
     blocking(move || Ok(scanner::scan(&projects))).await
 }
 
-/// 플러그인 목록의 토글. 플러그인이 설치된 범위의 설정 파일을 고친다.
-/// user → ~/.claude/settings.json, project/local → 설치된 폴더의 .claude/settings(.local).json
 #[tauri::command]
 async fn set_enabled(
     app: AppHandle,
@@ -93,7 +88,6 @@ async fn set_enabled(
     .await
 }
 
-/// 폴더별 적용 설정. value: true(켬) / false(끔) / null(PC 기본값 따름)
 #[tauri::command]
 async fn set_folder_enabled(
     app: AppHandle,
@@ -118,7 +112,6 @@ async fn remove_setting(app: AppHandle, id: String) -> Result<(), String> {
     blocking(move || settings::set_enabled(&id, None, &backups)).await
 }
 
-/// 설치. scope가 project/local이면 그 폴더에서 CLI를 실행해 폴더 설정에 기록되게 한다.
 #[tauri::command]
 async fn install_plugin(
     app: AppHandle,
@@ -201,7 +194,6 @@ fn save_prefs(app: AppHandle, prefs: model::Prefs) -> Result<(), String> {
     store::save(&dir, &st)
 }
 
-/// 작업 폴더 등록 (폴더 선택 창에서 고른 경로)
 #[tauri::command]
 fn add_project(app: AppHandle, path: String) -> Result<HubState, String> {
     let dir = PathBuf::from(&path);
@@ -223,7 +215,6 @@ fn add_project(app: AppHandle, path: String) -> Result<HubState, String> {
     Ok(st)
 }
 
-/// 폴더 등록 해제 (폴더 안의 설정 파일은 그대로 둔다)
 #[tauri::command]
 fn remove_project(app: AppHandle, path: String) -> Result<HubState, String> {
     let data = data_dir(&app)?;
@@ -279,7 +270,6 @@ async fn get_catalog(app: AppHandle, state: State<'_, AppState>, refresh: bool) 
     Ok(cat)
 }
 
-/// 마켓플레이스를 원본에서 다시 받아 새 플러그인·업데이트를 가져온다.
 #[tauri::command]
 async fn update_marketplaces(state: State<'_, AppState>) -> Result<String, String> {
     let r = blocking(catalog::update_marketplaces).await;
@@ -299,14 +289,11 @@ fn open_login() -> Result<(), String> {
     guide::open_login_terminal()
 }
 
-/// 저장된 한국어 가이드 (없으면 null)
 #[tauri::command]
 fn get_guide(app: AppHandle, id: String, version: Option<String>) -> Result<Option<Guide>, String> {
     Ok(guide::cached(&data_dir(&app)?, &id, version.as_deref()))
 }
 
-/// 한국어 가이드 생성. 설치된 플러그인이면 디스크의 구성 요소·README를 근거로 쓰고,
-/// 설치 전 플러그인이면 카탈로그의 이름·설명만으로 만든다.
 #[tauri::command]
 async fn generate_guide(
     app: AppHandle,
@@ -339,7 +326,6 @@ async fn generate_guide(
     .await
 }
 
-/// README는 프론트에서 받은 경로가 아니라 스캔 결과의 설치 경로로만 읽는다.
 #[tauri::command]
 async fn read_readme(id: String, surface: String) -> Result<Option<String>, String> {
     blocking(move || {

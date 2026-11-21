@@ -1,12 +1,8 @@
-//! 권장 사용법 규칙 엔진.
-//! 설정 파일이 바뀔 때마다 다시 평가되어, 잘못된 사용을 실시간으로 경고한다.
-
 use crate::model::{Diagnostic, Fix, Marketplace, Plugin, ProjectState};
 use crate::paths::version_key;
 use crate::scanner::SettingsInfo;
 use std::collections::{BTreeMap, HashSet};
 
-/// 이 개수를 넘게 켜 두면 매 세션 컨텍스트 비용이 커진다고 안내한다.
 pub const MAX_RECOMMENDED_ENABLED: usize = 10;
 
 fn diag(
@@ -38,7 +34,6 @@ pub fn evaluate(
 ) -> Vec<Diagnostic> {
     let mut out = Vec::new();
 
-    // 폴더별 설정 점검
     let installed_ids: HashSet<&str> = plugins
         .iter()
         .filter(|p| p.surface == "cli" && p.installed)
@@ -102,7 +97,6 @@ pub fn evaluate(
     let cli: Vec<&Plugin> = plugins.iter().filter(|p| p.surface == "cli").collect();
 
     for p in &cli {
-        // 1. 켜져 있는데 설치되지 않음
         if p.enabled && !p.installed {
             out.push(diag(
                 format!("dangling:{}", p.id),
@@ -113,7 +107,6 @@ pub fn evaluate(
                 Some(("remove-setting", "설정에서 항목 제거")),
             ));
         }
-        // 2. 설치 기록은 있는데 폴더가 없음
         if p.installed && !p.path_exists {
             out.push(diag(
                 format!("missing-path:{}", p.id),
@@ -127,7 +120,6 @@ pub fn evaluate(
                 Some(("reinstall", "다시 설치")),
             ));
         }
-        // 3. 매니페스트 손상
         if p.path_exists && !p.manifest_ok {
             out.push(diag(
                 format!("manifest:{}", p.id),
@@ -138,7 +130,6 @@ pub fn evaluate(
                 Some(("reinstall", "다시 설치")),
             ));
         }
-        // 4. 등록되지 않은 마켓플레이스
         if !p.marketplace.is_empty() && p.installed && !known.contains(p.marketplace.as_str()) {
             out.push(diag(
                 format!("unknown-mkt:{}", p.id),
@@ -149,7 +140,6 @@ pub fn evaluate(
                 None,
             ));
         }
-        // 5. 업데이트 가능
         if let (Some(cur), Some(latest)) = (&p.version, &p.latest_version) {
             if version_key(latest) > version_key(cur) {
                 out.push(diag(
@@ -162,7 +152,6 @@ pub fn evaluate(
                 ));
             }
         }
-        // 6. 훅이 있는 플러그인 켜짐
         if p.enabled && !p.components.hooks.is_empty() {
             out.push(diag(
                 format!("hooks:{}", p.id),
@@ -177,7 +166,6 @@ pub fn evaluate(
 
     let enabled: Vec<&&Plugin> = cli.iter().filter(|p| p.enabled && p.installed).collect();
 
-    // 7. 같은 이름의 플러그인이 여러 마켓플레이스에서 동시에 켜짐
     let mut by_name: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for p in &enabled {
         by_name.entry(p.name.as_str()).or_default().push(p.id.as_str());
@@ -193,7 +181,6 @@ pub fn evaluate(
         ));
     }
 
-    // 8. 스킬·명령 이름 충돌
     let mut by_skill: BTreeMap<String, Vec<&str>> = BTreeMap::new();
     for p in &enabled {
         for c in p.components.skills.iter().chain(p.components.commands.iter()) {
@@ -216,7 +203,6 @@ pub fn evaluate(
         }
     }
 
-    // 9. 너무 많이 켜 둠
     if enabled.len() > MAX_RECOMMENDED_ENABLED {
         out.push(diag(
             "too-many".into(),
@@ -228,7 +214,6 @@ pub fn evaluate(
         ));
     }
 
-    // 10. 앱과 터미널 양쪽에서 같은 플러그인을 켬
     let desktop_names: HashSet<String> = plugins
         .iter()
         .filter(|p| p.surface == "desktop" && p.enabled)

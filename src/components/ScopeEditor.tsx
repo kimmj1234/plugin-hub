@@ -22,7 +22,6 @@ export function EffectiveBadge({ on, source }: { on: boolean; source: keyof type
   );
 }
 
-/** 플러그인 하나를 PC 전체 기본값과 폴더별로 어디에 적용할지 정한다. */
 export function ScopeEditor({ plugin }: { plugin: Plugin }) {
   const { snap, toggle, setFolder, addProject } = useHub();
   if (!snap || plugin.surface !== "cli") return null;

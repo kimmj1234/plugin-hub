@@ -1,11 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-/**
- * 플러그인 README는 외부에서 온 내용이라 HTML로 주입하지 않는다.
- * 자주 쓰는 마크다운(제목, 목록, 코드, 굵게, 링크)만 React 요소로 직접 만든다.
- */
-
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
   const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))/g;

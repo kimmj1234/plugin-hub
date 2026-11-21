@@ -29,14 +29,12 @@ interface HubCtx {
   catalog: Catalog | null;
   catalogLoading: boolean;
   catalogError: string | null;
-  /** 마켓플레이스 원본까지 다시 받아 목록을 갱신 */
   refreshCatalog: (remote: boolean) => Promise<void>;
   projects: ProjectFolder[];
   prefs: Prefs;
   setPrefs: (p: Prefs) => Promise<void>;
   addProject: (path: string) => Promise<void>;
   removeProject: (path: string) => Promise<void>;
-  /** 폴더별 설정 변경. value: true 켬 / false 끔 / null 기본값 따름 */
   setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
 }
 
@@ -80,7 +78,6 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const s = await api.scan();
-      // 실시간 감지: 이전 스캔에 없던 오류·경고가 생기면 알린다.
       const important = s.diagnostics.filter((d) => d.severity !== "info");
       if (seenDiag.current) {
         for (const d of important) {
@@ -137,7 +134,6 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const toggle = useCallback(
     async (p: Plugin, enabled: boolean) => {
-      // 낙관적 반영 후 파일 감시 이벤트로 실제 상태를 다시 읽는다.
       setSnap((s) =>
         s ? { ...s, plugins: s.plugins.map((x) => (x.id === p.id && x.surface === p.surface ? { ...x, enabled } : x)) } : s,
       );
@@ -232,12 +228,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
           try {
             await api.updateMarketplaces();
           } catch (e) {
-            // 네트워크 문제 등으로 실패해도 로컬 목록은 보여준다
             console.warn(e);
           }
         }
         const c = await api.catalog(true);
-        // 실시간 반영: 이번에 새로 생겼거나 업데이트된 플러그인을 알린다.
         const now = new Set(c.entries.filter((e) => e.isNew || e.updated).map((e) => e.pluginId));
         if (flagged.current) {
           const fresh = c.entries.filter((e) => now.has(e.pluginId) && !flagged.current!.has(e.pluginId));
@@ -266,7 +260,6 @@ export function HubProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshCatalog]);
 
-  // 마켓플레이스 원본 자동 확인 (설정에서 주기 변경, 0이면 끔)
   useEffect(() => {
     if (!prefs.remoteRefreshMinutes) return;
     const timer = setInterval(() => refreshCatalog(true), prefs.remoteRefreshMinutes * 60 * 1000);

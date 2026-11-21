@@ -3,7 +3,6 @@ import { useHub } from "../hub";
 import { SlashHelp, SlashRow, slashItems } from "../components/SlashCommands";
 import type { Surface } from "../types";
 
-/** 설치된 모든 플러그인의 슬래시 명령을 한곳에서 검색한다. */
 export function Commands() {
   const { snap } = useHub();
   const [query, setQuery] = useState("");

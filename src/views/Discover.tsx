@@ -31,7 +31,6 @@ export function Discover() {
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
 
-  // 설치 상태: 터미널(~/.claude)과 Claude 앱(계정 동기화)을 모두 반영한다.
   const cliIds = useMemo(() => new Set(snap?.plugins.filter((p) => p.surface === "cli" && p.installed).map((p) => p.id)), [snap]);
   const appNames = useMemo(
     () => new Set(snap?.plugins.filter((p) => p.surface === "desktop").flatMap((p) => [p.displayName.toLowerCase(), p.id.toLowerCase()])),
@@ -75,7 +74,6 @@ export function Discover() {
           (filter !== "installed" || installedWhere(e).length > 0) &&
           (!q || `${e.name} ${e.description} ${e.ko ?? ""} ${e.pluginId}`.toLowerCase().includes(q)),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows, cat, mkt, filter, q, cliIds, appNames],
   );
 

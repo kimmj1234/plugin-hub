@@ -8,7 +8,6 @@ import { Toggle } from "../components/Toggle";
 
 const PC = "__pc";
 
-/** 폴더(프로젝트)별로 어떤 플러그인을 쓸지 한눈에 정하는 화면 */
 export function Scopes() {
   const { snap, projects, addProject, removeProject, setFolder, toggle, toggleMany } = useHub();
   const [selected, setSelected] = useState<string>(PC);

@@ -161,9 +161,7 @@ export interface ProjectFolder {
 export interface ProjectState extends ProjectFolder {
   exists: boolean;
   isGitRepo: boolean;
-  /** .claude/settings.json (팀 공유) */
   shared: Record<string, boolean>;
-  /** .claude/settings.local.json (나만) */
   local: Record<string, boolean>;
   sharedError: string | null;
   localError: string | null;

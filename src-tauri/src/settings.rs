@@ -1,7 +1,3 @@
-//! ~/.claude/settings.json 의 enabledPlugins 직접 수정.
-//! 사용자 범위 ON/OFF는 즉시 반영되도록 CLI를 거치지 않고 이 모듈이 처리한다.
-//! 다른 설정 키와 순서는 그대로 보존하고, 수정 전 백업을 남긴다.
-
 use crate::paths;
 use crate::scanner::now_ms;
 use serde_json::{Map, Value};
@@ -24,7 +20,6 @@ fn backup(src: &Path, backup_dir: &Path) -> Result<(), String> {
     let dst = backup_dir.join(format!("settings-{}-{tag}-{}", now_ms(), src.file_name().unwrap_or_default().to_string_lossy()));
     fs::copy(src, &dst).map_err(|e| format!("백업 실패: {e}"))?;
 
-    // 오래된 백업 정리
     let mut files: Vec<PathBuf> = fs::read_dir(backup_dir)
         .map_err(|e| e.to_string())?
         .flatten()
@@ -53,13 +48,10 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     fs::rename(&tmp, path).map_err(|e| format!("저장 실패: {e}"))
 }
 
-/// PC 전체 기본값(~/.claude/settings.json)에서 켜고 끄기
 pub fn set_enabled(id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {
     set_enabled_in(&paths::user_settings(), id, enabled, backup_dir)
 }
 
-/// 지정한 설정 파일의 enabledPlugins를 고친다.
-/// enabled = Some(true/false) 이면 값을 설정하고, None 이면 항목을 제거한다(상위 설정을 따름).
 pub fn set_enabled_in(p: &Path, id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {
     let p = p.to_path_buf();
     if enabled.is_none() && !p.exists() {
@@ -93,7 +85,6 @@ pub fn set_enabled_in(p: &Path, id: &str, enabled: Option<bool>, backup_dir: &Pa
             ep.remove(id);
         }
     }
-    // 비어 버린 enabledPlugins는 지워서 파일을 깔끔하게 둔다
     if ep.is_empty() {
         obj.remove("enabledPlugins");
     }

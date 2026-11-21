@@ -1,5 +1,3 @@
-//! 프론트엔드와 주고받는 데이터 구조.
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Clone, Debug)]
@@ -7,7 +5,6 @@ use serde::{Deserialize, Serialize};
 pub struct CliInfo {
     pub path: String,
     pub version: Option<String>,
-    /// "terminal" | "desktop-bundled"
     pub kind: String,
 }
 
@@ -20,7 +17,6 @@ pub struct EnvInfo {
     pub terminal_cli: Option<CliInfo>,
     pub desktop_installed: bool,
     pub desktop_bundled_versions: Vec<String>,
-    /// 설치·업데이트 명령에 실제로 쓰는 CLI
     pub active_cli: Option<CliInfo>,
 }
 
@@ -29,13 +25,9 @@ pub struct EnvInfo {
 pub struct Component {
     pub name: String,
     pub description: String,
-    /// 슬래시 명령 뒤에 붙이는 인자 안내 (frontmatter `argument-hint`)
     pub argument_hint: Option<String>,
-    /// `/` 메뉴에서 직접 부를 수 있는지 (`user-invocable: false`면 false)
     pub user_invocable: bool,
-    /// Claude가 상황을 보고 자동으로 부를 수 있는지 (`disable-model-invocation: true`면 false)
     pub model_invocable: bool,
-    /// 예시 요청 문장 (frontmatter `examples[].utterance`)
     pub examples: Vec<String>,
 }
 
@@ -52,19 +44,16 @@ pub struct Components {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Plugin {
-    /// name@marketplace
     pub id: String,
     pub name: String,
     pub display_name: String,
     pub marketplace: String,
-    /// "cli" (터미널·Claude Code) | "desktop" (Claude 앱 계정 동기화)
     pub surface: String,
     pub enabled: bool,
     pub installed: bool,
     pub version: Option<String>,
     pub latest_version: Option<String>,
     pub scope: Option<String>,
-    /// 폴더 범위(project/local)로 설치된 경우 그 폴더
     pub project_path: Option<String>,
     pub install_path: Option<String>,
     pub path_exists: bool,
@@ -74,7 +63,6 @@ pub struct Plugin {
     pub homepage: Option<String>,
     pub repository: Option<String>,
     pub components: Components,
-    /// 이 앱에서 켜고 끌 수 있는지 (앱 동기화 플러그인은 읽기 전용)
     pub toggleable: bool,
 }
 
@@ -90,7 +78,6 @@ pub struct Marketplace {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Fix {
-    /// "remove-setting" | "reinstall" | "update" | "disable"
     pub kind: String,
     pub label: String,
 }
@@ -99,7 +86,6 @@ pub struct Fix {
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub id: String,
-    /// "error" | "warning" | "info"
     pub severity: String,
     pub plugin_id: Option<String>,
     pub title: String,
@@ -136,9 +122,7 @@ pub struct CatalogEntry {
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogChange {
-    /// 이전에 본 적 없는 플러그인
     pub is_new: bool,
-    /// 이전에 본 버전과 달라진 플러그인
     pub updated: bool,
     pub first_seen: u64,
 }
@@ -147,12 +131,10 @@ pub struct CatalogChange {
 #[serde(rename_all = "camelCase")]
 pub struct Catalog {
     pub entries: Vec<CatalogEntry>,
-    /// "cli" | "local-cache"
     pub origin: String,
     pub fetched_at: u64,
     pub new_count: usize,
     pub updated_count: usize,
-    /// 처음 실행이라 모두 "본 것"으로 기록한 경우
     pub first_run: bool,
 }
 
@@ -167,7 +149,6 @@ pub struct GuideCommand {
     pub example: String,
 }
 
-/// AI가 만든 한국어 가이드
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Guide {
@@ -201,7 +182,6 @@ pub struct CliResult {
     pub code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
-    /// 마켓플레이스가 선언한 명령을 실행해야 하는 설치일 때, 사용자 확인이 필요한 내용
     pub needs_accept: Option<AcceptPrompt>,
 }
 
@@ -220,7 +200,6 @@ pub struct Group {
     pub plugin_ids: Vec<String>,
 }
 
-/// 사용자가 등록한 작업 폴더 (Claude Code 프로젝트)
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFolder {
@@ -228,7 +207,6 @@ pub struct ProjectFolder {
     pub name: String,
 }
 
-/// 폴더별 플러그인 설정 상태
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectState {
@@ -236,9 +214,7 @@ pub struct ProjectState {
     pub name: String,
     pub exists: bool,
     pub is_git_repo: bool,
-    /// .claude/settings.json (팀 공유)
     pub shared: std::collections::BTreeMap<String, bool>,
-    /// .claude/settings.local.json (나만)
     pub local: std::collections::BTreeMap<String, bool>,
     pub shared_error: Option<String>,
     pub local_error: Option<String>,
@@ -254,13 +230,10 @@ fn default_refresh() -> u32 {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Prefs {
-    /// 새로 설치할 때 기본 범위: user | project | local
     #[serde(default = "default_scope")]
     pub default_install_scope: String,
-    /// 기본 범위가 폴더일 때 그 폴더
     #[serde(default)]
     pub default_install_project: Option<String>,
-    /// 마켓플레이스 원본 자동 확인 주기(분). 0이면 끔
     #[serde(default = "default_refresh")]
     pub remote_refresh_minutes: u32,
 }

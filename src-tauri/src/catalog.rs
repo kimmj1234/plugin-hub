@@ -1,7 +1,3 @@
-//! 설치 가능한 플러그인 카탈로그 (검색용).
-//! 1순위: `claude plugin list --available --json` (설치 가능한 공식 목록)
-//! 2순위: CLI가 없을 때 Claude Code가 남긴 디렉터리 캐시 파일 (보기 전용)
-
 use crate::model::{Catalog, CatalogChange, CatalogEntry};
 use crate::scanner::{now_ms, read_json};
 use crate::{cli, paths};
@@ -88,23 +84,18 @@ fn from_local_cache() -> Vec<CatalogEntry> {
         .unwrap_or_default()
 }
 
-/// "새로 생김" 표시를 유지하는 기간
 const NEW_BADGE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
 #[derive(Serialize, Deserialize, Default)]
 struct Seen {
-    /// pluginId -> 마지막으로 본 버전
     #[serde(default)]
     versions: HashMap<String, String>,
-    /// pluginId -> 처음 본 시각
     #[serde(default)]
     first_seen: HashMap<String, u64>,
-    /// pluginId -> 버전이 바뀐 것을 본 시각
     #[serde(default)]
     updated_at: HashMap<String, u64>,
 }
 
-/// 이전에 본 카탈로그와 비교해 새 플러그인·업데이트를 표시하고 기록을 갱신한다.
 fn track_changes(entries: &mut [CatalogEntry], data_dir: &Path) -> (usize, usize, bool) {
     let file = data_dir.join("catalog-seen.json");
     let first_run = !file.exists();
@@ -174,7 +165,6 @@ pub fn load(data_dir: &Path) -> Result<Catalog, String> {
     })
 }
 
-/// 등록된 마켓플레이스를 원본(git 등)에서 다시 받아 새 플러그인·버전을 반영한다.
 pub fn update_marketplaces() -> Result<String, String> {
     let r = cli::run(&["plugin", "marketplace", "update"], Duration::from_secs(180))?;
     if r.ok {

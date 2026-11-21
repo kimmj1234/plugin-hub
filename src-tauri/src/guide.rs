@@ -1,7 +1,3 @@
-//! 플러그인 한국어 가이드 생성.
-//! 사용자의 Claude Code(로그인된 CLI)에 `-p` 모드로 요청하고, 결과를 앱 데이터 폴더에 저장해 재사용한다.
-//! 별도 API 키가 필요 없고, 사용자가 버튼을 눌렀을 때만 실행된다.
-
 use crate::model::{AiStatus, Guide, Plugin};
 use crate::cli;
 use crate::scanner::now_ms;
@@ -66,7 +62,6 @@ fn truncate(s: &str, n: usize) -> &str {
     &s[..cut]
 }
 
-/// 설치된 플러그인 정보를 프롬프트용 텍스트로 만든다.
 pub fn context_from_plugin(p: &Plugin) -> String {
     let mut s = format!(
         "플러그인 이름: {}\n식별자: {}\n설명: {}\n",
@@ -140,7 +135,6 @@ fn extract_json(text: &str) -> Option<Value> {
 }
 
 pub fn generate(dir: &Path, id: &str, version: Option<&str>, context: &str) -> Result<Guide, String> {
-    // 사용자 설정·플러그인·훅이 로드되지 않도록 빈 폴더에서 project 설정만 읽게 한다.
     let work = dir.join("guide-workdir");
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let prompt = format!("{INSTRUCTIONS}{context}");
@@ -183,7 +177,6 @@ pub fn generate(dir: &Path, id: &str, version: Option<&str>, context: &str) -> R
     Ok(g)
 }
 
-/// 로그인 명령을 사용자의 터미널 앱에서 연다 (인증 정보는 사용자가 직접 입력).
 pub fn open_login_terminal() -> Result<(), String> {
     let cli = cli::active_cli().ok_or("Claude Code CLI를 찾지 못했습니다.")?;
     #[cfg(target_os = "macos")]

@@ -5,11 +5,9 @@ export interface SlashItem {
   plugin: Plugin;
   comp: Component;
   kind: "command" | "skill";
-  /** 입력하는 이름: /플러그인:이름 */
   call: string;
 }
 
-/** 플러그인의 명령어와 스킬을 슬래시 명령 목록으로 */
 export function slashItems(p: Plugin): SlashItem[] {
   const ns = p.displayName || p.name;
   const items: SlashItem[] = [];

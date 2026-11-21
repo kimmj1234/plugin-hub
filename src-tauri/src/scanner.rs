@@ -1,5 +1,3 @@
-//! 설치된 플러그인과 마켓플레이스를 디스크에서 읽어 Snapshot을 만든다. (읽기 전용)
-
 use crate::model::*;
 use crate::{cli, paths, rules};
 use serde_json::{Map, Value};
@@ -43,8 +41,6 @@ fn unquote(s: &str) -> String {
     s.replace("\\\"", "\"").replace("''", "'")
 }
 
-/// SKILL.md / commands/*.md 의 YAML frontmatter에서 필요한 키만 간단히 뽑는다.
-/// (YAML 라이브러리 없이 자주 쓰는 형태만 지원: 한 줄 값, `|`/`>` 여러 줄 값, examples 목록)
 pub struct Frontmatter {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -236,7 +232,6 @@ pub fn read_settings() -> SettingsInfo {
     info
 }
 
-/// 마켓플레이스 목록과, 각 마켓플레이스가 제공하는 플러그인의 최신 버전(name@mkt -> version).
 fn read_marketplaces() -> (Vec<Marketplace>, HashMap<String, String>) {
     let mut list = Vec::new();
     let mut versions = HashMap::new();
@@ -330,13 +325,11 @@ fn build_plugin(
     }
 }
 
-/// 터미널·Claude Code 쪽 플러그인 (~/.claude)
 fn cli_plugins(settings: &SettingsInfo, latest: &HashMap<String, String>) -> Vec<Plugin> {
     let mut installed: BTreeMap<String, Value> = BTreeMap::new();
     if let Ok(v) = read_json(&paths::installed_plugins_file()) {
         if let Some(m) = v.get("plugins").and_then(|x| x.as_object()) {
             for (id, entries) in m {
-                // 여러 범위(user/project)에 설치된 경우 user를 우선 표시한다.
                 if let Some(arr) = entries.as_array() {
                     let pick = arr
                         .iter()
@@ -359,7 +352,6 @@ fn cli_plugins(settings: &SettingsInfo, latest: &HashMap<String, String>) -> Vec
         .map(|id| {
             let inst = installed.get(&id);
             let path = inst.and_then(|i| str_of(i, "installPath"));
-            // 폴더 범위로 설치된 플러그인은 그 폴더의 설정 파일에서 켜짐 여부를 읽는다.
             let scope = inst.and_then(|i| str_of(i, "scope"));
             let project = inst.and_then(|i| str_of(i, "projectPath"));
             let enabled = match (scope.as_deref(), project) {
@@ -379,7 +371,6 @@ fn cli_plugins(settings: &SettingsInfo, latest: &HashMap<String, String>) -> Vec
         .collect()
 }
 
-/// Claude 앱(계정 동기화) 쪽 플러그인. 앱이 서버와 동기화하므로 읽기 전용으로 다룬다.
 fn desktop_plugins() -> Vec<Plugin> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -444,7 +435,6 @@ fn enabled_map(p: &Path) -> (BTreeMap<String, bool>, Option<String>) {
     }
 }
 
-/// 등록된 폴더마다 공유(.claude/settings.json)·개인(.claude/settings.local.json) 설정을 읽는다.
 pub fn project_states(projects: &[ProjectFolder]) -> Vec<ProjectState> {
     projects
         .iter()
@@ -466,7 +456,6 @@ pub fn project_states(projects: &[ProjectFolder]) -> Vec<ProjectState> {
         .collect()
 }
 
-/// Claude Code가 기억하는 작업 폴더 중 지금도 있는 것 (폴더 등록 추천용)
 pub fn suggested_projects() -> Vec<ProjectFolder> {
     let Ok(v) = read_json(&paths::claude_global_config()) else {
         return Vec::new();

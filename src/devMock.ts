@@ -1,8 +1,3 @@
-/**
- * 브라우저 미리보기 모드 (개발 전용).
- * Tauri 밖(`npm run dev` 후 브라우저)에서 열면 Rust 대신 가짜 데이터로 응답한다.
- * UI 확인과 README 스크린샷용이며, 실제 파일은 건드리지 않는다.
- */
 import type { Catalog, CatalogEntry, Component, Diagnostic, Guide, HubState, Plugin, ProjectState, Snapshot } from "./types";
 
 const comp = (name: string, description: string, extra: Partial<Component> = {}): Component => ({
