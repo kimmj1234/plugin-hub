@@ -187,8 +187,35 @@ fn save_prefs(app: AppHandle, prefs: model::Prefs) -> Result<(), String> {
     }
     let dir = data_dir(&app)?;
     let mut st = store::load(&dir);
+    let login_changed = st.prefs.launch_at_login != prefs.launch_at_login;
     st.prefs = prefs;
-    store::save(&dir, &st)
+    store::save(&dir, &st)?;
+    if login_changed {
+        apply_launch_at_login(&app, st.prefs.launch_at_login)?;
+    }
+    Ok(())
+}
+
+fn apply_launch_at_login(app: &AppHandle, on: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let al = app.autolaunch();
+    let now = al.is_enabled().unwrap_or(false);
+    if on && !now {
+        al.enable().map_err(|e| format!("로그인 시 실행을 켜지 못했습니다: {e}"))?;
+    } else if !on && now {
+        al.disable().map_err(|e| format!("로그인 시 실행을 끄지 못했습니다: {e}"))?;
+    }
+    Ok(())
+}
+
+const HIDDEN_ARG: &str = "--hidden";
+
+fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
 }
 
 #[tauri::command]
@@ -376,15 +403,31 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_ARG]),
+        ))
         .manage(AppState::default())
         .setup(|app| {
-            let projects = app
-                .path()
-                .app_data_dir()
-                .map(|d| store::load(&d).projects)
-                .unwrap_or_default();
-            watcher::start(app.handle().clone(), projects.iter().map(|p| PathBuf::from(&p.path)).collect());
+            let state = app.path().app_data_dir().map(|d| store::load(&d)).unwrap_or_default();
+            // 로그인 항목을 설정값과 맞춘다 (앱을 옮기거나 다시 설치해도 경로가 최신이 되도록).
+            if let Err(e) = apply_launch_at_login(app.handle(), state.prefs.launch_at_login) {
+                eprintln!("[autostart] {e}");
+            }
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                show_main(app.handle());
+            }
+            watcher::start(app.handle().clone(), state.projects.iter().map(|p| PathBuf::from(&p.path)).collect());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 창을 닫아도 앱은 계속 실행해 감시·자동 업데이트를 이어 간다. 완전히 끄려면 ⌘Q.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             scan,
@@ -412,6 +455,13 @@ pub fn run() {
             suggest_projects,
             set_folder_enabled
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_main(app);
+            }
+            let _ = (app, event);
+        });
 }

@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Plugin Hub",
+        "visible": false,
         "width": 1240,
         "height": 820,
         "minWidth": 960,

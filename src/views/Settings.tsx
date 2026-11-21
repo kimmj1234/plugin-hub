@@ -67,6 +67,25 @@ export function Settings() {
       </section>
 
       <section className="settings-block">
+        <h2>계속 관리하기</h2>
+        <label className="radio">
+          <input type="checkbox" checked={prefs.autoUpdatePlugins} onChange={(e) => setPrefs({ ...prefs, autoUpdatePlugins: e.target.checked })} />
+          <span>
+            <strong>플러그인 업데이트 자동 설치</strong>
+            <span className="muted small"> — 터미널·Claude Code 플러그인에 새 버전이 나오면 확인 없이 바로 업데이트합니다. 새 세션부터 적용됩니다.</span>
+          </span>
+        </label>
+        <label className="radio">
+          <input type="checkbox" checked={prefs.launchAtLogin} onChange={(e) => setPrefs({ ...prefs, launchAtLogin: e.target.checked })} />
+          <span>
+            <strong>로그인할 때 자동 실행</strong>
+            <span className="muted small"> — Mac을 켜면 창 없이 뒤에서 실행되어 새 버전 확인과 경고 감지를 이어 갑니다.</span>
+          </span>
+        </label>
+        <p className="muted small">창을 닫아도 앱은 계속 실행됩니다. Dock 아이콘을 누르면 다시 열리고, 완전히 끄려면 ⌘Q를 누르세요.</p>
+      </section>
+
+      <section className="settings-block">
         <h2>등록한 작업 폴더</h2>
         <p className="muted small">폴더별 적용 설정은 '적용 범위' 화면에서 합니다.</p>
         <ul className="plain small">

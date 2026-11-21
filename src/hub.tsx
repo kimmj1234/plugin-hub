@@ -38,7 +38,7 @@ interface HubCtx {
   setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
 }
 
-const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30 };
+const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false };
 
 
 
@@ -285,6 +285,39 @@ export function HubProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(() => refreshCatalog(true), prefs.remoteRefreshMinutes * 60 * 1000);
     return () => clearInterval(timer);
   }, [refreshCatalog, prefs.remoteRefreshMinutes]);
+
+  // 자동 업데이트: 새 버전이 보이면 하나씩 업데이트한다. 같은 버전은 한 번만 시도해 실패가 반복되지 않게 한다.
+  const autoTried = useRef<Set<string>>(new Set());
+  const autoRunning = useRef(false);
+  useEffect(() => {
+    if (!prefs.autoUpdatePlugins || !snap || autoRunning.current) return;
+    const due = snap.plugins.filter(
+      (p) => p.surface === "cli" && p.version && p.latestVersion && p.latestVersion !== p.version && !autoTried.current.has(`${p.id}@${p.latestVersion}`),
+    );
+    if (!due.length) return;
+    autoRunning.current = true;
+    (async () => {
+      let ok = 0;
+      for (const p of due) {
+        autoTried.current.add(`${p.id}@${p.latestVersion}`);
+        const r = await withBusy(p.id, "자동 업데이트 중", () => api.update(p.id, p.scope, p.projectPath));
+        if (r?.ok) ok++;
+        else if (r) reportCli(`${p.displayName} 자동 업데이트`, r);
+      }
+      autoRunning.current = false;
+      if (ok) toast("ok", `플러그인 ${ok}개를 자동으로 업데이트했습니다 · 새 Claude Code 세션부터 적용됩니다`);
+      refresh();
+    })();
+  }, [snap, prefs.autoUpdatePlugins, withBusy, reportCli, toast, refresh]);
+
+  // 자동 업데이트를 켜 두었으면 시작할 때 한 번 원본을 확인한다.
+  const startupChecked = useRef(false);
+  useEffect(() => {
+    if (prefs.autoUpdatePlugins && !startupChecked.current) {
+      startupChecked.current = true;
+      refreshCatalog(true);
+    }
+  }, [prefs.autoUpdatePlugins, refreshCatalog]);
 
   const setPrefs = useCallback(
     async (p: Prefs) => {

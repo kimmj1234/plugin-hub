@@ -176,7 +176,7 @@ let hub: HubState = {
     { path: "~/dev/shop-web", name: "shop-web" },
     { path: "~/dev/api-server", name: "api-server" },
   ],
-  prefs: { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30 },
+  prefs: { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false },
 };
 
 let groups = { groups: [{ id: "g1", name: "매일 쓰는 것", pluginIds: ["superpowers@anthropic-plugin-directory", "frontend-design@claude-plugins-official"] }, { id: "g2", name: "팀 배포", pluginIds: ["commit-helper@team-tools", "deploy-kit@team-tools"] }] };

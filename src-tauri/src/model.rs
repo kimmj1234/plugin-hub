@@ -240,6 +240,10 @@ pub struct Prefs {
     pub default_install_project: Option<String>,
     #[serde(default = "default_refresh")]
     pub remote_refresh_minutes: u32,
+    #[serde(default)]
+    pub auto_update_plugins: bool,
+    #[serde(default)]
+    pub launch_at_login: bool,
 }
 
 impl Default for Prefs {
@@ -248,6 +252,8 @@ impl Default for Prefs {
             default_install_scope: default_scope(),
             default_install_project: None,
             remote_refresh_minutes: default_refresh(),
+            auto_update_plugins: false,
+            launch_at_login: false,
         }
     }
 }

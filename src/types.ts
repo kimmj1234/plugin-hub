@@ -177,6 +177,8 @@ export interface Prefs {
   defaultInstallScope: InstallScope;
   defaultInstallProject: string | null;
   remoteRefreshMinutes: number;
+  autoUpdatePlugins: boolean;
+  launchAtLogin: boolean;
 }
 
 export interface HubState {
