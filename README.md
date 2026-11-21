@@ -2,6 +2,8 @@
 
 Claude Code와 Claude 앱의 플러그인을 한곳에서 찾고, 설치하고, 정리하고, 켜고 끄는 데스크톱 앱입니다. macOS와 Windows를 지원합니다.
 
+**다운로드: [kimmj1234.github.io/plugin-hub](https://kimmj1234.github.io/plugin-hub/)**
+
 [![Release](https://img.shields.io/github/v/release/kimmj1234/plugin-hub)](https://github.com/kimmj1234/plugin-hub/releases/latest)
 [![CI](https://github.com/kimmj1234/plugin-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/kimmj1234/plugin-hub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -26,7 +28,7 @@ Plugin Hub는 Anthropic과 관계없는 개인 오픈소스 프로젝트입니�
 
 ## 1. 다운로드와 설치
 
-[최신 릴리스 페이지](https://github.com/kimmj1234/plugin-hub/releases/latest)에서 운영체제에 맞는 파일을 받습니다.
+[다운로드 페이지](https://kimmj1234.github.io/plugin-hub/)에서 받거나, [최신 릴리스 페이지](https://github.com/kimmj1234/plugin-hub/releases/latest)에서 운영체제에 맞는 파일을 받습니다. 다운로드 페이지는 접속한 운영체제를 알아보고 맞는 파일을 먼저 보여 주며, 항상 최신 릴리스로 연결됩니다(소스: `docs/`).
 
 | 운영체제 | 파일 | 요구 사항 |
 |---|---|---|
