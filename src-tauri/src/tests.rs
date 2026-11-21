@@ -115,6 +115,11 @@ fn scan_rules_and_toggle_on_fake_home() {
     let snap = scanner::scan(&[gone]);
     assert!(snap.diagnostics.iter().any(|d| d.id.starts_with("project-missing:")));
 
+    write(home.join("plugins/installed_plugins.json"), "{ broken");
+    let snap = scanner::scan(&[]);
+    assert!(snap.diagnostics.iter().any(|d| d.id == "installed-invalid"));
+    assert!(!snap.diagnostics.iter().any(|d| d.id.starts_with("dangling:")));
+
     unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
     let _ = fs::remove_dir_all(&home);
     let _ = fs::remove_dir_all(&backups);
@@ -192,4 +197,120 @@ fn rejects_unsafe_ids() {
     assert!(validate_id("a b").is_err());
     assert!(validate_id("a;rm").is_err());
     assert!(validate_id("").is_err());
+}
+
+#[test]
+#[ignore]
+fn e2e_real_cli_isolated() {
+    use crate::{catalog, cli};
+    use std::time::Duration;
+    let t = Duration::from_secs(180);
+    let home = temp_dir("e2e-home");
+    let data = temp_dir("e2e-data");
+    let proj = temp_dir("e2e-proj");
+    let mkt = temp_dir("e2e-mkt");
+    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
+
+    write(mkt.join(".claude-plugin/marketplace.json"), r#"{"name":"e2e-mkt","owner":{"name":"t"},"plugins":[{"name":"hello","source":"./plugins/hello","description":"hello plugin","version":"1.0.0"}]}"#);
+    let pl = mkt.join("plugins/hello");
+    write(pl.join(".claude-plugin/plugin.json"), r#"{"name":"hello","version":"1.0.0","description":"hello plugin"}"#);
+    write(pl.join("commands/greet.md"), "---\ndescription: 인사한다\nargument-hint: <이름>\n---\n$ARGUMENTS 에게 인사");
+
+    let ok = |r: Result<crate::model::CliResult, String>, what: &str| {
+        let r = r.unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert!(r.ok, "{what} 실패: {} {}", r.stdout, r.stderr);
+    };
+    ok(cli::run(&["plugin", "marketplace", "add", mkt.to_str().unwrap()], t), "marketplace add");
+    ok(cli::run(&["plugin", "install", "hello@e2e-mkt", "-s", "user", "--json"], t), "install user");
+
+    let folder = crate::model::ProjectFolder { path: proj.to_string_lossy().into(), name: "proj".into() };
+    let snap = scanner::scan(std::slice::from_ref(&folder));
+    let p = snap.plugins.iter().find(|p| p.id == "hello@e2e-mkt").expect("설치 후 스캔에 보여야 함");
+    assert!(p.enabled && p.installed && p.path_exists && p.manifest_ok);
+    assert_eq!(p.components.commands.len(), 1);
+    assert_eq!(p.components.commands[0].argument_hint.as_deref(), Some("<이름>"));
+
+    settings::set_enabled("hello@e2e-mkt", Some(false), &data.join("b")).unwrap();
+    let snap = scanner::scan(std::slice::from_ref(&folder));
+    assert!(!snap.plugins.iter().find(|p| p.id == "hello@e2e-mkt").unwrap().enabled);
+    let listed = cli::run(&["plugin", "list", "--json"], t).unwrap();
+    assert!(listed.stdout.contains("hello@e2e-mkt"));
+
+    settings::set_enabled_in(&crate::paths::project_settings(&proj, true), "hello@e2e-mkt", Some(true), &data.join("b")).unwrap();
+    let snap = scanner::scan(std::slice::from_ref(&folder));
+    assert_eq!(snap.projects[0].local.get("hello@e2e-mkt"), Some(&true));
+
+    let cat = catalog::load(&data).expect("카탈로그");
+    assert!(cat.entries.iter().any(|e| e.plugin_id == "hello@e2e-mkt"), "카탈로그 출처 {}", cat.origin);
+
+    ok(cli::run(&["plugin", "uninstall", "hello@e2e-mkt", "-s", "user", "--json"], t), "uninstall user");
+    ok(cli::run_in(&proj, &["plugin", "install", "hello@e2e-mkt", "-s", "local", "--json"], t), "install local");
+    let snap = scanner::scan(std::slice::from_ref(&folder));
+    let p = snap.plugins.iter().find(|p| p.id == "hello@e2e-mkt").expect("폴더 설치 후 보여야 함");
+    assert_eq!(p.scope.as_deref(), Some("local"));
+    assert_eq!(p.project_path.as_deref().map(|s| std::fs::canonicalize(s).unwrap()), Some(std::fs::canonicalize(&proj).unwrap()));
+    ok(cli::run_in(&proj, &["plugin", "uninstall", "hello@e2e-mkt", "-s", "local", "--json"], t), "uninstall local");
+    let snap = scanner::scan(std::slice::from_ref(&folder));
+    assert!(snap.plugins.iter().all(|p| p.id != "hello@e2e-mkt" || !p.installed));
+
+    unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
+    for d in [&home, &data, &proj, &mkt] {
+        let _ = fs::remove_dir_all(d);
+    }
+}
+
+#[test]
+fn settings_writes_are_safe() {
+    let dir = temp_dir("writes");
+    let backups = dir.join("b");
+    let file = dir.join("settings.json");
+    write(file.clone(), r#"{"model":"x"}"#);
+    let handles: Vec<_> = (0..16)
+        .map(|i| {
+            let f = file.clone();
+            let b = backups.clone();
+            std::thread::spawn(move || settings::set_enabled_in(&f, &format!("p{i}@m"), Some(true), &b).unwrap())
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["enabledPlugins"].as_object().unwrap().len(), 16);
+    assert_eq!(v["model"], "x");
+    assert!(fs::read_dir(&dir).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".tmp")));
+
+    #[cfg(unix)]
+    {
+        let real = dir.join("real.json");
+        write(real.clone(), "{}");
+        let link = dir.join("link.json");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        settings::set_enabled_in(&link, "a@m", Some(false), &backups).unwrap();
+        assert!(link.is_symlink());
+        assert!(fs::read_to_string(&real).unwrap().contains("a@m"));
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn version_compare_only_for_semver() {
+    use crate::paths::is_semver;
+    assert!(is_semver("1.2.3") && is_semver("v2.0") && is_semver("1.0.0-beta.1"));
+    assert!(!is_semver("unknown") && !is_semver("a1b2c3d") && !is_semver(""));
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_timeout_kills_child_tree() {
+    let started = std::time::Instant::now();
+    let r = crate::cli::run_raw_for_test(
+        std::path::Path::new("/bin/sh"),
+        &["-c", "sleep 30 & sleep 30"],
+        std::time::Duration::from_millis(500),
+    )
+    .unwrap();
+    assert!(!r.ok);
+    assert!(r.stderr.contains("시간 초과"));
+    assert!(started.elapsed() < std::time::Duration::from_secs(8));
 }

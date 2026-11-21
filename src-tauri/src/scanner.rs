@@ -204,6 +204,7 @@ pub struct SettingsInfo {
     pub enabled: BTreeMap<String, bool>,
     pub extra_marketplaces: HashSet<String>,
     pub error: Option<String>,
+    pub installed_error: Option<String>,
 }
 
 pub fn read_settings() -> SettingsInfo {
@@ -212,6 +213,7 @@ pub fn read_settings() -> SettingsInfo {
         enabled: BTreeMap::new(),
         extra_marketplaces: HashSet::new(),
         error: None,
+        installed_error: None,
     };
     if !p.exists() {
         return info;
@@ -325,10 +327,37 @@ fn build_plugin(
     }
 }
 
-fn cli_plugins(settings: &SettingsInfo, latest: &HashMap<String, String>) -> Vec<Plugin> {
+fn read_installed() -> Result<Value, String> {
+    let f = paths::installed_plugins_file();
+    if !f.exists() {
+        return Ok(Value::Null);
+    }
+    read_json(&f)
+}
+
+pub fn recorded_project_paths() -> Vec<String> {
+    let Ok(v) = read_installed() else { return Vec::new() };
+    v.get("plugins")
+        .and_then(|x| x.as_object())
+        .into_iter()
+        .flat_map(|m| m.values())
+        .filter_map(|e| e.as_array())
+        .flatten()
+        .filter_map(|e| str_of(e, "projectPath"))
+        .collect()
+}
+
+fn cli_plugins(settings: &mut SettingsInfo, latest: &HashMap<String, String>) -> Vec<Plugin> {
     let mut installed: BTreeMap<String, Value> = BTreeMap::new();
-    if let Ok(v) = read_json(&paths::installed_plugins_file()) {
-        if let Some(m) = v.get("plugins").and_then(|x| x.as_object()) {
+    let data = match read_installed() {
+        Ok(v) => v,
+        Err(e) => {
+            settings.installed_error = Some(e);
+            Value::Null
+        }
+    };
+    {
+        if let Some(m) = data.get("plugins").and_then(|x| x.as_object()) {
             for (id, entries) in m {
                 if let Some(arr) = entries.as_array() {
                     let pick = arr
@@ -479,9 +508,9 @@ pub fn suggested_projects() -> Vec<ProjectFolder> {
 }
 
 pub fn scan(projects: &[ProjectFolder]) -> Snapshot {
-    let settings = read_settings();
+    let mut settings = read_settings();
     let (marketplaces, latest) = read_marketplaces();
-    let mut plugins = cli_plugins(&settings, &latest);
+    let mut plugins = cli_plugins(&mut settings, &latest);
     plugins.extend(desktop_plugins());
     let projects = project_states(projects);
     let diagnostics = rules::evaluate(&plugins, &settings, &marketplaces, &projects);

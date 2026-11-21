@@ -1,5 +1,5 @@
 use crate::model::{Diagnostic, Fix, Marketplace, Plugin, ProjectState};
-use crate::paths::version_key;
+use crate::paths::{is_semver, version_key};
 use crate::scanner::SettingsInfo;
 use std::collections::{BTreeMap, HashSet};
 
@@ -64,7 +64,7 @@ pub fn evaluate(
             }
         }
         for (id, on) in pr.shared.iter().chain(pr.local.iter()) {
-            if *on && !installed_ids.contains(id.as_str()) {
+            if *on && settings.installed_error.is_none() && !installed_ids.contains(id.as_str()) {
                 out.push(diag(
                     format!("project-dangling:{}:{id}", pr.path),
                     "warning",
@@ -75,6 +75,17 @@ pub fn evaluate(
                 ));
             }
         }
+    }
+
+    if let Some(e) = &settings.installed_error {
+        out.push(diag(
+            "installed-invalid".into(),
+            "error",
+            None,
+            "설치 기록(installed_plugins.json)을 읽을 수 없습니다".into(),
+            format!("Claude Code가 파일을 쓰는 중이면 잠시 후 자동으로 다시 검사합니다. 계속되면 파일 형식을 확인하세요. 그동안 '설치되지 않음' 검사는 건너뜁니다.\n{e}"),
+            None,
+        ));
     }
 
     if let Some(e) = &settings.error {
@@ -97,7 +108,7 @@ pub fn evaluate(
     let cli: Vec<&Plugin> = plugins.iter().filter(|p| p.surface == "cli").collect();
 
     for p in &cli {
-        if p.enabled && !p.installed {
+        if p.enabled && !p.installed && settings.installed_error.is_none() {
             out.push(diag(
                 format!("dangling:{}", p.id),
                 "error",
@@ -141,7 +152,7 @@ pub fn evaluate(
             ));
         }
         if let (Some(cur), Some(latest)) = (&p.version, &p.latest_version) {
-            if version_key(latest) > version_key(cur) {
+            if is_semver(latest) && is_semver(cur) && version_key(latest) > version_key(cur) {
                 out.push(diag(
                     format!("update:{}", p.id),
                     "info",

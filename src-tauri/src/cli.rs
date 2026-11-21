@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 fn version_cache() -> &'static Mutex<HashMap<PathBuf, Option<String>>> {
@@ -55,45 +55,49 @@ fn run_raw(bin: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, St
 }
 
 fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
-    let mut child = Command::new(bin)
-        .args(args)
+    let mut cmd = Command::new(bin);
+    cmd.args(args)
         .current_dir(cwd)
         .env("PATH", paths::child_path())
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("CLI 실행 실패: {e}"))?;
+        .stderr(Stdio::piped());
+    paths::own_process_group(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("CLI 실행 실패: {e}"))?;
 
-    let mut so = child.stdout.take().unwrap();
-    let mut se = child.stderr.take().unwrap();
-    let t_out = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = so.read_to_string(&mut s);
-        s
-    });
-    let t_err = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = se.read_to_string(&mut s);
-        s
-    });
+    let reader = |mut r: Box<dyn Read + Send>| {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = r.read_to_end(&mut buf);
+            let _ = tx.send(String::from_utf8_lossy(&buf).into_owned());
+        });
+        rx
+    };
+    let rx_out = reader(Box::new(child.stdout.take().ok_or("stdout 없음")?));
+    let rx_err = reader(Box::new(child.stderr.take().ok_or("stderr 없음")?));
 
     let start = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(st)) => break Some(st),
             Ok(None) if start.elapsed() > timeout => {
+                paths::kill_tree(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                paths::kill_tree(child.id());
+                return Err(e.to_string());
+            }
         }
     };
-    let stdout = t_out.join().unwrap_or_default();
-    let mut stderr = t_err.join().unwrap_or_default();
+    let drain = Duration::from_secs(5);
+    let stdout = rx_out.recv_timeout(drain).unwrap_or_default();
+    let mut stderr = rx_err.recv_timeout(drain).unwrap_or_default();
     if status.is_none() {
         stderr.push_str(&format!("\n시간 초과({}초)로 중단했습니다.", timeout.as_secs()));
     }
@@ -107,6 +111,11 @@ fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], timeout: Duration) -> Resul
         stderr,
         needs_accept,
     })
+}
+
+#[cfg(test)]
+pub fn run_raw_for_test(bin: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
+    run_raw(bin, args, timeout)
 }
 
 pub fn run(args: &[&str], timeout: Duration) -> Result<CliResult, String> {

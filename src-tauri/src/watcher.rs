@@ -1,5 +1,6 @@
 use crate::paths;
 use notify::{Event, RecursiveMode, Watcher};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -45,12 +46,44 @@ pub fn watch_project(dir: &Path) {
     }
 }
 
-fn watch_project_dir(w: &mut notify::RecommendedWatcher, dir: &Path) {
-    let claude = dir.join(".claude");
-    let target = if claude.is_dir() { claude } else { dir.to_path_buf() };
-    if target.exists() {
-        if let Err(e) = w.watch(&target, RecursiveMode::NonRecursive) {
-            eprintln!("[watcher] {} 감시 실패: {e}", target.display());
+struct Targets {
+    wanted: Vec<(PathBuf, RecursiveMode)>,
+    watched: HashSet<PathBuf>,
+}
+
+impl Targets {
+    fn add_project(&mut self, dir: &Path) {
+        self.wanted.push((dir.to_path_buf(), RecursiveMode::NonRecursive));
+        self.wanted.push((dir.join(".claude"), RecursiveMode::NonRecursive));
+    }
+
+    fn ensure(&mut self, w: &mut notify::RecommendedWatcher) {
+        for (p, mode) in self.wanted.clone() {
+            let (target, mode) = if p.is_dir() {
+                (p, mode)
+            } else {
+                match p.ancestors().skip(1).find(|a| a.is_dir()) {
+                    Some(a) => (a.to_path_buf(), RecursiveMode::NonRecursive),
+                    None => continue,
+                }
+            };
+            if self.watched.contains(&target) {
+                continue;
+            }
+            match w.watch(&target, mode) {
+                Ok(()) => {
+                    self.watched.insert(target);
+                }
+                Err(e) => eprintln!("[watcher] {} 감시 실패: {e}", target.display()),
+            }
+        }
+    }
+
+    fn forget_removed(&mut self, ev: &Event) {
+        if matches!(ev.kind, notify::EventKind::Remove(_)) {
+            for p in &ev.paths {
+                self.watched.retain(|w| !w.starts_with(p));
+            }
         }
     }
 }
@@ -74,37 +107,31 @@ pub fn start(app: AppHandle, projects: Vec<PathBuf>) {
             }
         };
 
-        let targets = [
-            (paths::claude_home(), RecursiveMode::NonRecursive),
-            (paths::plugins_dir(), RecursiveMode::NonRecursive),
-            (paths::plugins_dir().join("marketplaces"), RecursiveMode::Recursive),
-            (paths::desktop_plugin_list_dir(), RecursiveMode::Recursive),
-        ];
-        for (p, mode) in targets {
-            if p.exists() {
-                if let Err(e) = watcher.watch(&p, mode) {
-                    eprintln!("[watcher] {} 감시 실패: {e}", p.display());
-                }
-            }
-        }
-
+        let mut targets = Targets {
+            wanted: vec![
+                (paths::claude_home(), RecursiveMode::NonRecursive),
+                (paths::plugins_dir(), RecursiveMode::NonRecursive),
+                (paths::plugins_dir().join("marketplaces"), RecursiveMode::Recursive),
+                (paths::desktop_plugin_list_dir(), RecursiveMode::Recursive),
+            ],
+            watched: HashSet::new(),
+        };
         for p in &projects {
-            watch_project_dir(&mut watcher, p);
+            targets.add_project(p);
         }
+        targets.ensure(&mut watcher);
 
         while let Ok(msg) = rx.recv() {
             let ev = match msg {
                 Msg::AddProject(p) => {
-                    watch_project_dir(&mut watcher, &p);
+                    targets.add_project(&p);
+                    targets.ensure(&mut watcher);
                     continue;
                 }
                 Msg::Fs(ev) => ev,
             };
-            for p in &ev.paths {
-                if p.file_name().map(|n| n == ".claude").unwrap_or(false) && p.is_dir() {
-                    let _ = watcher.watch(p, RecursiveMode::NonRecursive);
-                }
-            }
+            targets.forget_removed(&ev);
+            targets.ensure(&mut watcher);
             let mut state = matches(&ev, STATE_FILES);
             let mut catalog = matches(&ev, CATALOG_FILES);
             if !state && !catalog {
@@ -114,12 +141,14 @@ pub fn start(app: AppHandle, projects: Vec<PathBuf>) {
             while let Ok(more) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 match more {
                     Msg::Fs(more) => {
+                        targets.forget_removed(&more);
                         state |= matches(&more, STATE_FILES);
                         catalog |= matches(&more, CATALOG_FILES);
                     }
-                    Msg::AddProject(p) => watch_project_dir(&mut watcher, &p),
+                    Msg::AddProject(p) => targets.add_project(&p),
                 }
             }
+            targets.ensure(&mut watcher);
             if state {
                 eprintln!("[watcher] 설치·설정 변경 감지 → 화면 갱신");
                 let _ = app.emit("hub://changed", ());

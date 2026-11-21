@@ -154,6 +154,32 @@ pub fn child_path() -> OsString {
     std::env::join_paths(list).unwrap_or_default()
 }
 
+pub fn own_process_group(cmd: &mut std::process::Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000 | 0x0000_0200);
+    }
+}
+
+pub fn kill_tree(pid: u32) {
+    #[cfg(unix)]
+    let _ = std::process::Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+    #[cfg(windows)]
+    let _ = std::process::Command::new("taskkill").args(["/T", "/F", "/PID", &pid.to_string()]).status();
+}
+
+pub fn is_semver(v: &str) -> bool {
+    let core = v.trim_start_matches('v').split(['-', '+']).next().unwrap_or("");
+    let parts: Vec<&str> = core.split('.').collect();
+    !parts.is_empty() && parts.len() <= 4 && parts.iter().all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+}
+
 pub fn version_key(v: &str) -> Vec<u64> {
     v.split(|c: char| !c.is_ascii_digit())
         .filter(|s| !s.is_empty())

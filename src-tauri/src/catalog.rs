@@ -37,7 +37,7 @@ fn from_cli() -> Result<Vec<CatalogEntry>, String> {
         .and_then(|x| x.as_array())
         .cloned()
         .unwrap_or_default();
-    Ok(arr
+    let mut out: Vec<CatalogEntry> = arr
         .iter()
         .filter_map(|e| {
             let id = s(e, "pluginId")?;
@@ -52,7 +52,38 @@ fn from_cli() -> Result<Vec<CatalogEntry>, String> {
                 plugin_id: id,
             })
         })
-        .collect())
+        .collect();
+    let mut known: std::collections::HashSet<String> = out.iter().map(|e| e.plugin_id.clone()).collect();
+    for e in v.get("installed").and_then(|x| x.as_array()).into_iter().flatten() {
+        let Some(id) = s(e, "id") else { continue };
+        if !known.insert(id.clone()) {
+            continue;
+        }
+        out.push(installed_entry(&id, e));
+    }
+    Ok(out)
+}
+
+fn installed_entry(id: &str, e: &Value) -> CatalogEntry {
+    let (name, marketplace) = id.split_once('@').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or((id.to_string(), String::new()));
+    let man = s(e, "installPath")
+        .and_then(|p| read_json(&Path::new(&p).join(".claude-plugin/plugin.json")).ok())
+        .unwrap_or(Value::Null);
+    let repo = match man.get("repository") {
+        Some(Value::String(u)) => Some(u.clone()),
+        Some(r @ Value::Object(_)) => s(r, "url"),
+        _ => None,
+    };
+    CatalogEntry {
+        plugin_id: id.to_string(),
+        name: s(&man, "name").unwrap_or(name),
+        description: s(&man, "description").unwrap_or_default(),
+        marketplace,
+        version: s(e, "version").or_else(|| s(&man, "version")),
+        source_url: repo.or_else(|| s(&man, "homepage")),
+        installable: true,
+        change: CatalogChange::default(),
+    }
 }
 
 fn from_local_cache() -> Vec<CatalogEntry> {
@@ -66,7 +97,7 @@ fn from_local_cache() -> Vec<CatalogEntry> {
                 .filter_map(|e| {
                     let name = s(e, "name")?;
                     Some(CatalogEntry {
-                        plugin_id: name.clone(),
+                        plugin_id: format!("{name}@anthropic-plugin-directory"),
                         description: s(e, "summary").unwrap_or_default(),
                         marketplace: "anthropic-plugin-directory".into(),
                         version: e.get("release").and_then(|r| s(r, "version")),

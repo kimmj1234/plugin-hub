@@ -3,6 +3,8 @@ use crate::scanner::now_ms;
 use serde_json::{Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 const KEEP_BACKUPS: usize = 20;
 
@@ -39,13 +41,24 @@ fn backup(src: &Path, backup_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+    let target = if path.is_symlink() { fs::canonicalize(path).map_err(|e| e.to_string())? } else { path.to_path_buf() };
+    if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let tmp = path.with_extension("json.pluginhub-tmp");
-    fs::write(&tmp, content).map_err(|e| format!("쓰기 실패: {e}"))?;
-    fs::rename(&tmp, path).map_err(|e| format!("저장 실패: {e}"))
+    let name = target.file_name().unwrap_or_default().to_string_lossy();
+    let tmp = target.with_file_name(format!(".{name}.pluginhub-{}-{}.tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+    if let Err(e) = fs::write(&tmp, content) {
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("쓰기 실패: {e}"));
+    }
+    fs::rename(&tmp, &target).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("저장 실패: {e}")
+    })
 }
 
 pub fn set_enabled(id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {
@@ -53,6 +66,7 @@ pub fn set_enabled(id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result
 }
 
 pub fn set_enabled_in(p: &Path, id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let p = p.to_path_buf();
     if enabled.is_none() && !p.exists() {
         return Ok(());

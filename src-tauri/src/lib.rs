@@ -44,14 +44,8 @@ fn hub_state(app: &AppHandle) -> Result<HubState, String> {
 
 fn allowed_project(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     let registered = hub_state(app)?.projects.iter().any(|p| p.path == path);
-    let recorded = || {
-        scanner::scan(&[])
-            .plugins
-            .iter()
-            .any(|p| p.project_path.as_deref() == Some(path))
-    };
     let dir = PathBuf::from(path);
-    if !dir.is_absolute() || !(registered || recorded()) {
+    if !dir.is_absolute() || !(registered || scanner::recorded_project_paths().iter().any(|p| p == path)) {
         return Err("등록되지 않은 폴더입니다. '적용 범위'에서 먼저 폴더를 추가하세요.".into());
     }
     if !dir.is_dir() {
