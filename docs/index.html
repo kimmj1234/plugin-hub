@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plugin Hub — Claude Code 플러그인 관리</title>
+  <meta name="description" content="Claude Code와 Claude 앱의 플러그인을 한곳에서 찾고, 설치하고, 정리하고, 켜고 끄는 무료 데스크톱 앱. macOS와 Windows 지원." />
+  <meta property="og:title" content="Plugin Hub" />
+  <meta property="og:description" content="Claude Code와 Claude 앱의 플러그인을 한곳에서 관리하는 무료 데스크톱 앱 (macOS, Windows)" />
+  <meta property="og:image" content="icon-512.png" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src https://api.github.com" />
+  <link rel="icon" href="favicon.png" />
+  <style>
+    :root {
+      --bg: #f7f7fb;
+      --panel: #ffffff;
+      --text: #17172b;
+      --muted: #5f6178;
+      --line: #e4e4ef;
+      --accent: #4f46e5;
+      --accent-ink: #ffffff;
+      --accent-soft: #eef0ff;
+      --warn: #b45309;
+      --code: #f1f1f7;
+      --radius: 14px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111120;
+        --panel: #1a1a2e;
+        --text: #ececf6;
+        --muted: #a2a3bd;
+        --line: #2c2c45;
+        --accent: #8f93ff;
+        --accent-ink: #15143d;
+        --accent-soft: #23234a;
+        --warn: #f5b041;
+        --code: #24243c;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", "Segoe UI", sans-serif;
+      line-height: 1.6;
+      word-break: keep-all;
+    }
+    a { color: var(--accent); }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); text-decoration: none; }
+    .brand img { width: 28px; height: 28px; border-radius: 7px; }
+    nav a { color: var(--muted); text-decoration: none; margin-left: 18px; font-size: 14px; }
+    nav a:hover { color: var(--text); }
+
+    .hero { display: grid; grid-template-columns: 1.25fr 1fr; gap: 40px; align-items: center; padding: 48px 0 56px; }
+    .hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.2; margin: 0 0 16px; letter-spacing: -0.02em; }
+    .hero p.lead { font-size: 18px; color: var(--muted); margin: 0 0 28px; }
+    .hero-art { display: grid; place-items: center; }
+    .hero-art img { width: min(300px, 70vw); height: auto; filter: drop-shadow(0 24px 40px rgba(46, 40, 160, .28)); }
+
+    .dl-primary { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--accent); color: var(--accent-ink); text-decoration: none; padding: 14px 24px; border-radius: 12px; font-weight: 700; font-size: 17px; box-shadow: 0 8px 20px rgba(79, 70, 229, .25); }
+    .dl-primary small { font-weight: 500; font-size: 12px; opacity: .85; }
+    .dl-primary:hover { filter: brightness(1.06); }
+    .dl-other { margin-top: 14px; font-size: 14px; color: var(--muted); }
+    .dl-other a { margin-right: 14px; }
+    .version { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
+    section { padding: 40px 0; border-top: 1px solid var(--line); }
+    section h2 { font-size: 24px; margin: 0 0 8px; letter-spacing: -0.01em; }
+    section .sub { color: var(--muted); margin: 0 0 24px; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+    .card h3 { margin: 0 0 6px; font-size: 16px; }
+    .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .downloads { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .os { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+    .os.detected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .os h3 { margin: 0 0 4px; font-size: 18px; }
+    .os .req { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .btn { display: inline-block; background: var(--accent); color: var(--accent-ink); text-decoration: none; padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: 15px; }
+    .btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    .os ol { margin: 16px 0 0; padding-left: 20px; font-size: 14px; color: var(--muted); }
+    .os ol li { margin-bottom: 6px; }
+    .os ol strong { color: var(--text); }
+    .note { background: var(--accent-soft); border-radius: 12px; padding: 14px 16px; font-size: 14px; margin-top: 16px; }
+    .note strong { color: var(--text); }
+
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    ul.plain { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+    ul.plain li { margin-bottom: 6px; }
+    code { background: var(--code); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+
+    footer { padding: 32px 0 48px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    footer a { color: var(--muted); margin-right: 14px; }
+
+    @media (max-width: 820px) {
+      .hero { grid-template-columns: 1fr; padding: 28px 0 40px; gap: 24px; }
+      .hero-art { order: -1; }
+      .hero-art img { width: 160px; }
+      .grid { grid-template-columns: 1fr; }
+      .downloads, .two { grid-template-columns: 1fr; }
+      nav a { margin-left: 12px; }
+    }
+    @media (max-width: 420px) { nav { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="./"><img src="favicon.png" alt="" /> Plugin Hub</a>
+      <nav>
+        <a href="#download">다운로드</a>
+        <a href="#features">기능</a>
+        <a href="#privacy">개인정보</a>
+        <a href="https://github.com/kimmj1234/plugin-hub">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div>
+          <h1>Claude 플러그인,<br />한곳에서 찾고 정리하세요</h1>
+          <p class="lead">Claude Code와 Claude 앱의 플러그인을 검색하고, 설치하고, 켜고 끄고, 안 쓰는 것을 정리하는 무료 데스크톱 앱입니다.</p>
+          <a id="primary" class="dl-primary" href="https://github.com/kimmj1234/plugin-hub/releases/latest">
+            <span id="primary-label">다운로드</span>
+            <small id="primary-sub">macOS · Windows</small>
+          </a>
+          <div class="dl-other" id="other-links">
+            <a href="#download">다른 운영체제</a>
+            <a href="https://github.com/kimmj1234/plugin-hub/releases">모든 버전</a>
+          </div>
+          <div class="version" id="version">무료 · 오픈소스(MIT)</div>
+        </div>
+        <div class="hero-art"><img src="icon-512.png" alt="Plugin Hub 아이콘" width="300" height="300" /></div>
+      </div>
+
+      <section id="features">
+        <h2>무엇을 할 수 있나요</h2>
+        <p class="sub">플러그인이 늘어날수록 무엇이 켜져 있는지, 무엇을 쓰는지 알기 어려워집니다.</p>
+        <div class="grid">
+          <div class="card"><h3>찾기와 설치</h3><p>공식 디렉터리 3,700여 개 플러그인을 하고 싶은 일로 검색하고, 분야별 인기 플러그인을 한국어 설명과 함께 봅니다.</p></div>
+          <div class="card"><h3>사용처 구분</h3><p>Claude Code(터미널, Claude 앱 Code 탭)와 Claude 채팅(채팅, Cowork) 플러그인을 나눠 보여 줍니다.</p></div>
+          <div class="card"><h3>켜고 끄기, 폴더별 적용</h3><p>플러그인을 바로 켜고 끄고, 작업 폴더마다 다르게 적용합니다. 설정 파일은 고치기 전에 자동 백업합니다.</p></div>
+          <div class="card"><h3>안 쓰는 플러그인 정리</h3><p>켜진 플러그인이 매 세션 차지하는 컨텍스트를 보여 주고, 최근 30일 동안 쓰지 않은 플러그인을 알려 줍니다(동의한 경우).</p></div>
+          <div class="card"><h3>명령어 모음</h3><p>플러그인별 슬래시 명령과 쓰는 법을 한국어로 보고, 버튼 하나로 Claude 앱 채팅에 입력합니다.</p></div>
+          <div class="card"><h3>설정 점검과 자동 업데이트</h3><p>설정 찌꺼기, 이름 충돌 같은 문제를 14개 규칙으로 감지하고, 앱과 플러그인을 자동으로 최신 상태로 유지합니다.</p></div>
+        </div>
+      </section>
+
+      <section id="download">
+        <h2>다운로드</h2>
+        <p class="sub">설치 후에는 앱이 스스로 새 버전을 받아 업데이트합니다. 다시 내려받을 필요가 없습니다.</p>
+        <div class="downloads">
+          <div class="os" id="os-mac">
+            <h3>macOS</h3>
+            <div class="req">Apple Silicon · Intel 공용 · macOS 11 이상</div>
+            <a class="btn" id="dl-mac" href="https://github.com/kimmj1234/plugin-hub/releases/latest">Mac용 다운로드 (.dmg)</a>
+            <ol>
+              <li>dmg를 열고 <strong>Plugin Hub</strong>를 응용 프로그램 폴더로 끌어 옵니다.</li>
+              <li>처음 열 때 "확인할 수 없습니다" 창이 뜨면 <strong>완료</strong>를 누릅니다.</li>
+              <li>시스템 설정 &gt; 개인정보 보호 및 보안에서 <strong>그래도 열기</strong>를 누릅니다. 이후에는 바로 열립니다.</li>
+            </ol>
+          </div>
+          <div class="os" id="os-win">
+            <h3>Windows</h3>
+            <div class="req">Windows 10 이상 · 64비트 · 관리자 권한 불필요</div>
+            <a class="btn" id="dl-win" href="https://github.com/kimmj1234/plugin-hub/releases/latest">Windows용 다운로드 (.exe)</a>
+            <ol>
+              <li>설치 파일을 실행합니다.</li>
+              <li>"Windows의 PC 보호" 창이 뜨면 <strong>추가 정보</strong>를 누른 뒤 <strong>실행</strong>을 누릅니다.</li>
+              <li>설치가 끝나면 Plugin Hub가 열립니다.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="note">
+          <strong>처음 열 때 경고가 뜨는 이유</strong> — 아직 유료 코드 서명 인증서를 쓰지 않아 운영체제가 처음 한 번 확인을 요청합니다. 앱은 공개된 소스 코드로 GitHub에서 자동 빌드되며, 앱 업데이트는 개발자 서명을 확인한 뒤에만 설치됩니다.
+        </div>
+        <p class="sub" style="margin-top:16px">함께 필요한 것: Claude 앱 또는 터미널용 Claude Code 중 하나. Claude 앱에는 Claude Code가 들어 있습니다.</p>
+      </section>
+
+      <section id="privacy">
+        <h2>개인정보와 보안</h2>
+        <div class="two">
+          <div class="card">
+            <h3>이 PC 안에서만 동작합니다</h3>
+            <ul class="plain">
+              <li>개발자 서버가 없고, 사용 통계·광고·추적을 수집하지 않습니다.</li>
+              <li>처음 실행할 때 무엇을 읽고 언제 인터넷에 연결하는지 보여 주고 동의를 받습니다. 동의 전에는 아무것도 읽거나 보내지 않습니다.</li>
+              <li>대화 기록을 읽는 사용 분석은 선택이며 기본으로 꺼져 있습니다.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>안전하게 만들었습니다</h3>
+            <ul class="plain">
+              <li>외부 플러그인 파일은 신뢰하지 않는 입력으로 다루고, 명령은 셸을 거치지 않고 실행합니다.</li>
+              <li>독립 보안 검토와 자동 보안 스캔을 거쳤고, 모든 업데이트는 서명을 확인합니다.</li>
+              <li>소스 코드가 모두 공개되어 있습니다.</li>
+            </ul>
+          </div>
+        </div>
+        <p class="sub" style="margin-top:16px">
+          <a href="https://github.com/kimmj1234/plugin-hub/blob/main/PRIVACY.md">개인정보 처리방침</a> ·
+          <a href="https://github.com/kimmj1234/plugin-hub/blob/main/SECURITY.md">보안 정책</a> ·
+          <a href="https://github.com/kimmj1234/plugin-hub/blob/main/THIRD_PARTY_NOTICES.md">오픈소스 고지</a>
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <div>
+        <a href="https://github.com/kimmj1234/plugin-hub">GitHub</a>
+        <a href="https://github.com/kimmj1234/plugin-hub/releases">릴리스</a>
+        <a href="https://github.com/kimmj1234/plugin-hub/issues">문의·버그 신고</a>
+        <a href="https://github.com/kimmj1234/plugin-hub/blob/main/LICENSE">MIT 라이선스</a>
+      </div>
+      <p>Plugin Hub는 Anthropic과 관계없는 개인 오픈소스 프로젝트입니다. Claude와 Claude Code는 Anthropic의 상표입니다.</p>
+    </footer>
+  </div>
+
+  <script>
+    // 방문자의 운영체제를 알아보고, GitHub에서 최신 릴리스 파일 주소를 받아 버튼에 넣는다.
+    // 실패해도 버튼은 릴리스 페이지로 연결되므로 다운로드는 항상 가능하다.
+    (function () {
+      var ua = navigator.userAgent || "";
+      var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+      var isMac = /Mac/i.test(platform) || /Macintosh/i.test(ua);
+      var isWin = /Win/i.test(platform) || /Windows/i.test(ua);
+      var isMobile = /iPhone|iPad|Android/i.test(ua);
+
+      var primary = document.getElementById("primary");
+      var label = document.getElementById("primary-label");
+      var sub = document.getElementById("primary-sub");
+
+      if (isMobile) {
+        label.textContent = "PC에서 내려받으세요";
+        sub.textContent = "macOS · Windows용 데스크톱 앱입니다";
+        primary.href = "#download";
+      } else if (isMac) {
+        label.textContent = "Mac용 다운로드";
+        sub.textContent = "Apple Silicon · Intel 공용 (.dmg)";
+        document.getElementById("os-mac").classList.add("detected");
+      } else if (isWin) {
+        label.textContent = "Windows용 다운로드";
+        sub.textContent = "Windows 10 이상 (.exe)";
+        document.getElementById("os-win").classList.add("detected");
+      }
+
+      fetch("https://api.github.com/repos/kimmj1234/plugin-hub/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (rel) {
+          var mac = null, win = null;
+          (rel.assets || []).forEach(function (a) {
+            if (/_universal\.dmg$/i.test(a.name)) mac = a.browser_download_url;
+            if (/_x64-setup\.exe$/i.test(a.name)) win = a.browser_download_url;
+          });
+          var safe = function (u) { return typeof u === "string" && u.indexOf("https://github.com/kimmj1234/plugin-hub/releases/download/") === 0; };
+          if (safe(mac)) document.getElementById("dl-mac").href = mac;
+          if (safe(win)) document.getElementById("dl-win").href = win;
+          if (!isMobile && isMac && safe(mac)) primary.href = mac;
+          if (!isMobile && isWin && safe(win)) primary.href = win;
+          var v = String(rel.tag_name || "").replace(/[^0-9A-Za-z.\-]/g, "");
+          var d = rel.published_at ? new Date(rel.published_at) : null;
+          if (v) document.getElementById("version").textContent =
+            "최신 버전 " + v + (d && !isNaN(d) ? " · " + d.getFullYear() + "." + (d.getMonth() + 1) + "." + d.getDate() + " 출시" : "") + " · 무료 · 오픈소스(MIT)";
+        })
+        .catch(function () { /* 릴리스 페이지 링크를 그대로 쓴다 */ });
+    })();
+  </script>
+</body>
+</html>
