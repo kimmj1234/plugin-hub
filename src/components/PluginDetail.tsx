@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, errorText } from "../api";
 import { useHub } from "../hub";
 import type { Plugin } from "../types";
-import { koDescription } from "../catalogMeta";
+import { koFor } from "../catalogMeta";
 import { Markdown } from "./Markdown";
 import { Toggle } from "./Toggle";
 import { DiagnosticItem } from "./DiagnosticItem";
@@ -11,7 +11,7 @@ import { GuidePanel } from "./GuidePanel";
 import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
 import { ScopeEditor } from "./ScopeEditor";
 import { AppUsage } from "./AppUsage";
-import { alwaysOnTokens, formatTokens, usageLabel } from "../cost";
+import { alwaysOnTokens, formatTokens, recentlyInstalled, usageLabel, usageOf } from "../cost";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const { snap, toggle, uninstall, update, busy, groups, setGroups, toast, usage, usageDays } = useHub();
@@ -23,7 +23,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const busyLabel = busy[p.id];
   const groupId = groups.find((g) => g.pluginIds.includes(p.id))?.id ?? "";
   const hasUpdate = p.latestVersion && p.version && p.latestVersion !== p.version;
-  const ko = koDescription(p.id);
+  const ko = koFor(p);
   const slash = slashItems(p);
   const direct = slash.filter((s) => s.kind === "command" || s.comp.userInvocable);
   const autoOnly = slash.filter((s) => s.kind === "skill" && !s.comp.userInvocable);
@@ -73,7 +73,9 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         {p.author && <span className="badge">제작: {p.author}</span>}
         <span className="badge">슬래시 명령 {direct.length}개</span>
         <span className="badge cost" title="세션을 시작할 때마다 스킬·명령·에이전트 설명이 컨텍스트에 들어갑니다. 추정값입니다.">매 세션 약 {formatTokens(alwaysOnTokens(p))} 토큰{c.mcpServers.length ? " + MCP" : ""}</span>
-        {p.surface === "cli" && usage && <span className={`badge ${usage[p.name]?.count ? "ok" : "warn"}`}>{usageLabel(usage[p.name], usageDays)}</span>}
+        {p.surface === "cli" && usage && (
+          <span className={`badge ${usageOf(usage, p)?.count ? "ok" : recentlyInstalled(p) ? "" : "warn"}`}>{usageLabel(usageOf(usage, p), usageDays, p)}</span>
+        )}
       </div>
 
       {!p.toggleable && (

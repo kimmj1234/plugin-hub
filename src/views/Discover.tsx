@@ -219,7 +219,7 @@ export function Discover() {
           <div className="pl-name">
             {e.name}
             {e.isNew && <span className="badge new">NEW</span>}
-            {e.updated && <span className="badge upd">업데이트</span>}
+            {e.updated && !here && <span className="badge upd" title="최근 7일 안에 새 버전이 나왔습니다">최근 업데이트</span>}
             {there && <span className="badge" title={`${SURFACE_LABEL[other]}에도 설치되어 있습니다`}>{SURFACE_LABEL[other]}에도 있음</span>}
           </div>
           <div className="pl-desc">{e.ko ?? e.description}</div>

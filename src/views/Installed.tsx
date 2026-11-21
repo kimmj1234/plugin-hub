@@ -3,8 +3,8 @@ import { useHub } from "../hub";
 import { Toggle } from "../components/Toggle";
 import { PluginDetail } from "../components/PluginDetail";
 import type { Plugin, Surface } from "../types";
-import { koDescription } from "../catalogMeta";
-import { alwaysOnTokens, formatTokens, usageLabel } from "../cost";
+import { koFor } from "../catalogMeta";
+import { alwaysOnTokens, formatTokens, recentlyInstalled, usageLabel, usageOf } from "../cost";
 
 const ALL = "__all";
 const UNGROUPED = "__none";
@@ -116,7 +116,7 @@ export function Installed() {
                   {problemIds.has(p.id) && <span className="dot bad" title="문제 감지됨" />}
                   {p.displayName}
                 </div>
-                {(koDescription(p.id) || p.description) && <div className="pl-desc">{koDescription(p.id) || p.description}</div>}
+                {(koFor(p) || p.description) && <div className="pl-desc">{koFor(p) || p.description}</div>}
                 <div className="pl-sub">
                   {!p.installed ? (
                     installingIds.has(p.id) ? <span className="spinner-text">설치 마무리 중…</span> : <span className="bad-text">설치되지 않음</span>
@@ -124,7 +124,7 @@ export function Installed() {
                     <>
                       <span title="매 세션 컨텍스트에 들어가는 양(추정)">~{formatTokens(alwaysOnTokens(p))} 토큰</span>
                       {surface === "cli" && usage && (
-                        <span className={p.enabled && !usage[p.name]?.count ? "warn-text" : ""}> · {usageLabel(usage[p.name], usageDays)}</span>
+                        <span className={p.enabled && !usageOf(usage, p)?.count && !recentlyInstalled(p) ? "warn-text" : ""}> · {usageLabel(usageOf(usage, p), usageDays, p)}</span>
                       )}
                     </>
                   )}

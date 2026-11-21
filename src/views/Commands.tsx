@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, errorText } from "../api";
 import { useHub } from "../hub";
-import { koDescription } from "../catalogMeta";
+import { koFor } from "../catalogMeta";
 import { InvokeBadges, SlashHelp, slashItems, type SlashItem } from "../components/SlashCommands";
 import { CopyButton } from "../components/CopyButton";
 import type { Guide, GuideCommand, Plugin, Surface } from "../types";
@@ -40,7 +40,7 @@ export function Commands() {
   const shown = plugins.filter(
     (p) =>
       !q ||
-      `${p.displayName} ${koDescription(p.id) ?? ""} ${p.description} ${directItems(p).map((s) => `${s.call} ${s.comp.description}`).join(" ")}`
+      `${p.displayName} ${koFor(p) ?? ""} ${p.description} ${directItems(p).map((s) => `${s.call} ${s.comp.description}`).join(" ")}`
         .toLowerCase()
         .includes(q),
   );
@@ -60,7 +60,7 @@ export function Commands() {
             <li key={p.id} className={p.id === current?.id ? "selected" : ""} onClick={() => setSelected(p.id)}>
               <div className="pl-main">
                 <div className="pl-name">{p.displayName}</div>
-                {(koDescription(p.id) || p.description) && <div className="pl-desc">{koDescription(p.id) || p.description}</div>}
+                {(koFor(p) || p.description) && <div className="pl-desc">{koFor(p) || p.description}</div>}
                 <div className="pl-sub">
                   명령 {directItems(p).length}개{!p.enabled && <span className="warn-text"> · 꺼져 있음</span>}
                 </div>
@@ -86,7 +86,10 @@ function PluginCommands({ p }: { p: Plugin }) {
   const [error, setError] = useState<string | null>(null);
   const items = directItems(p);
   const autoOnly = slashItems(p).filter((s) => s.kind === "skill" && !s.comp.userInvocable);
-  const ko = koDescription(p.id);
+  const ko = koFor(p);
+  // 설명이 이미 한국어면 "영어로 되어 있다"고 안내하지 않는다
+  const described = items.filter((s) => s.comp.description.trim());
+  const alreadyKorean = described.length > 0 && described.filter((s) => /[가-힣]/.test(s.comp.description)).length * 2 >= described.length;
 
   useEffect(() => {
     api.getGuide(p.id, p.version).then(setGuide).catch(() => {});
@@ -95,7 +98,9 @@ function PluginCommands({ p }: { p: Plugin }) {
   const byKey = new Map<string, GuideCommand>((guide?.commands ?? []).map((c) => [key(c.command), c]));
 
   // Claude 앱 채팅에서 쓸 수 있는가: Claude 앱 플러그인이거나, 같은 이름이 Claude 앱에도 설치된 경우
-  const inApp = p.surface === "desktop" || !!snap?.plugins.some((x) => x.surface === "desktop" && x.name === p.name);
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  // Claude 앱 플러그인은 내부 이름이 UUID인 경우가 있어 plugin.json 이름(displayName)으로도 맞춘다
+  const inApp = p.surface === "desktop" || !!snap?.plugins.some((x) => x.surface === "desktop" && (same(x.name, p.name) || same(x.displayName, p.displayName)));
 
   const generate = async () => {
     setWorking(true);
@@ -150,6 +155,11 @@ function PluginCommands({ p }: { p: Plugin }) {
           <span className="badge ai" title="플러그인 제작자가 쓴 설명을 AI가 한국어로 옮긴 것입니다. 실제 동작은 원문과 다를 수 있습니다.">AI 한국어 설명</span>
           <span className="muted small">{new Date(guide.generatedAt).toLocaleDateString()} 생성</span>
           <button className="link" disabled={working} onClick={generate}>{working ? "다시 만드는 중…" : "다시 만들기"}</button>
+        </div>
+      ) : alreadyKorean ? (
+        <div className="ko-status">
+          <span className="muted small">제작자가 한국어로 설명을 써 두었습니다.</span>
+          <button className="link" disabled={working} onClick={generate}>{working ? "만드는 중…" : "AI로 쓰는 법·예시 더 자세히 보기"}</button>
         </div>
       ) : (
         <div className="ko-cta">

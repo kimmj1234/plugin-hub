@@ -585,3 +585,28 @@ fn guide_json_extraction_never_panics() {
     let v = extract_json("설명: {\"summary\":\"요약\"} 끝").unwrap();
     assert_eq!(v.get("summary").and_then(|v| v.as_str()), Some("요약"));
 }
+
+#[test]
+fn manifest_custom_component_paths() {
+    let root = temp_dir("manifest");
+    let outside = temp_dir("manifest-outside");
+    write(outside.join("SKILL.md"), "---\nname: stolen\ndescription: 밖\n---\n");
+    // humanizer·video-shotcraft처럼 루트에 SKILL.md가 있고 "skills": "./" 또는 ["./"]
+    write(root.join("SKILL.md"), "---\nname: humanizer\ndescription: 글을 사람처럼\n---\n");
+    write(root.join("extra/skills/a/SKILL.md"), "---\nname: a-skill\ndescription: A\n---\n");
+    write(root.join("cmds/run.md"), "---\ndescription: 실행\n---\n");
+    let rel_out = format!("../{}", outside.file_name().unwrap().to_string_lossy());
+    let manifest = serde_json::json!({
+        "name": "humanizer",
+        "skills": ["./", "./extra/skills", rel_out, "/etc"],
+        "commands": "./cmds"
+    });
+    let c = scanner::components(&root, &manifest);
+    let names: Vec<&str> = c.skills.iter().map(|s| s.name.as_str()).collect();
+    assert!(names.contains(&"humanizer"), "루트 SKILL.md");
+    assert!(names.contains(&"a-skill"), "추가 스킬 폴더");
+    assert!(!names.contains(&"stolen"), "플러그인 밖 경로는 무시");
+    assert_eq!(c.commands.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["run"]);
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&outside);
+}

@@ -68,13 +68,18 @@ for (const [id, text] of Object.entries(ko)) {
   if (!koByName.has(name)) koByName.set(name, text);
 }
 
-const OFFICIAL = new Set(["anthropic-plugin-directory", "claude-plugins-official"]);
+const OFFICIAL = new Set(["anthropic-plugin-directory", "claude-plugins-official", "knowledge-work-plugins"]);
 
 // 공식 플러그인은 두 공식 마켓플레이스 이름 중 어느 쪽으로 설치돼도 한국어 요약을 찾는다.
 // (다른 마켓플레이스의 같은 이름 플러그인은 내용이 다를 수 있어 쓰지 않는다)
 export function koDescription(pluginId: string): string | null {
   const [name, market] = pluginId.split("@");
   return ko[pluginId] ?? (OFFICIAL.has(market) ? koByName.get(name) : undefined) ?? null;
+}
+
+/// 설치된 플러그인의 한국어 요약. Claude 앱 플러그인은 id가 "UUID@마켓"이라 plugin.json 이름으로도 찾는다.
+export function koFor(p: { id: string; displayName: string; marketplace: string }): string | null {
+  return koDescription(p.id) ?? (OFFICIAL.has(p.marketplace) ? koByName.get(p.displayName.toLowerCase()) ?? koByName.get(p.displayName) ?? null : null);
 }
 
 export function topPopular<T extends { sourceUrl: string | null }>(list: T[], n = 5): T[] {

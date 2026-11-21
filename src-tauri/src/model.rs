@@ -65,6 +65,9 @@ pub struct Plugin {
     pub components: Components,
     pub toggleable: bool,
     pub app_ref: Option<String>,
+    /// 설치한 시각(ISO). 막 설치한 플러그인을 "안 쓰는 플러그인"으로 추천하지 않기 위해 쓴다.
+    #[serde(default)]
+    pub installed_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

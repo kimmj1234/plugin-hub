@@ -5,7 +5,7 @@
 ![status](https://img.shields.io/badge/status-MVP_개발중-orange)
 ![platform](https://img.shields.io/badge/platform-macOS_→_Windows-blue)
 ![stack](https://img.shields.io/badge/stack-Tauri_2_+_React_19-orange)
-![tests](https://img.shields.io/badge/tests-Rust_12개_통과-green)
+![tests](https://img.shields.io/badge/tests-Rust_13개_통과-green)
 
 | 항목 | 내용 |
 |------|------|
@@ -338,6 +338,9 @@ npm run dev
 - 문제: 지난번에 되던 자동 설치가 이미 추가된 플러그인에서 실패했다.
 - 원인: Claude 앱 디렉터리가 바뀌어, 계정에 있는 플러그인은 "계정에 추가됨" 구역에 링크가 아닌 버튼으로 나왔다(손쉬운 사용 트리 덤프로 확인).
 - 해결: 버튼도 후보로 보고 "계정에 추가됨" 구역이면 바로 "이미 추가됨" 처리. 실제 계정에서 이미 추가된 3개와 새 플러그인 1개(16→17)로 재확인했다.
+
+### 가짜 데이터에서는 안 보이던 문제 (실제 앱 점검)
+- 실제 Plugin Hub 화면을 실제 데이터로 하나씩 눌러 보니 7개 문제가 나왔다. 대표적으로 plugin.json에 스킬 경로를 직접 적는 플러그인(`"skills": "./"`)의 스킬을 못 읽었고, 설치 id와 스킬 이름이 다른 플러그인은 사용 횟수를 못 셌으며, Claude 앱 플러그인은 id가 UUID라 한국어 요약을 못 찾았다. 모두 고치고 실제 화면에서 다시 확인했다.
 
 ## 9. 한계와 앞으로의 계획
 

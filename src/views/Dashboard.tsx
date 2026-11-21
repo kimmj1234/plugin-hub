@@ -1,8 +1,8 @@
 import { useHub } from "../hub";
 import { DiagnosticItem } from "../components/DiagnosticItem";
 import { Toggle } from "../components/Toggle";
-import { koDescription } from "../catalogMeta";
-import { alwaysOnTokens, formatTokens } from "../cost";
+import { koFor } from "../catalogMeta";
+import { alwaysOnTokens, formatTokens, recentlyInstalled, usageOf, NEW_INSTALL_DAYS } from "../cost";
 import type { Plugin } from "../types";
 
 const BAR_COLORS = ["#4f46e5", "#7c7ff2", "#f59e0b", "#10b981", "#ec4899", "#0ea5e9"];
@@ -15,7 +15,9 @@ function Diet({ go }: { go: (v: "installed") => void }) {
   const total = costs.reduce((n, x) => n + x.t, 0);
   const top = costs.slice(0, 5);
   const rest = total - top.reduce((n, x) => n + x.t, 0);
-  const unused: Plugin[] = usage ? on.filter((p) => !usage[p.name]?.count) : [];
+  const neverUsed: Plugin[] = usage ? on.filter((p) => !usageOf(usage, p)?.count) : [];
+  const unused = neverUsed.filter((p) => !recentlyInstalled(p));
+  const fresh = neverUsed.length - unused.length;
   const unusedCost = unused.reduce((n, p) => n + alwaysOnTokens(p), 0);
   const mcp = on.filter((p) => p.components.mcpServers.length).length;
 
@@ -57,15 +59,22 @@ function Diet({ go }: { go: (v: "installed") => void }) {
           <p className="muted small">최근 {usageDays}일 사용 기록을 분석하는 중…</p>
         ) : unused.length === 0 ? (
           <p className="small">
-            <strong>모두 잘 쓰고 있습니다.</strong>{" "}
-            <span className="muted">최근 {usageDays}일 동안 켜진 플러그인을 모두 한 번 이상 썼습니다.</span>
+            <strong>지금 끌 만한 플러그인이 없습니다.</strong>{" "}
+            <span className="muted">
+              {fresh > 0
+                ? `최근 ${NEW_INSTALL_DAYS}일 안에 설치한 ${fresh}개는 아직 사용 기록이 없어 지켜보는 중이고, 나머지는 최근 ${usageDays}일 동안 썼습니다.`
+                : `켜진 플러그인을 최근 ${usageDays}일 동안 모두 한 번 이상 썼습니다.`}
+            </span>
           </p>
         ) : (
           <>
             <div className="diet-unused-head">
               <div>
                 <strong>최근 {usageDays}일 동안 한 번도 안 쓴 플러그인 {unused.length}개</strong>
-                <div className="muted small">끄면 매 세션 약 {formatTokens(unusedCost)} 토큰을 아끼고, 엉뚱한 스킬이 불릴 일도 줄어듭니다.</div>
+                <div className="muted small">
+                  끄면 매 세션 약 {formatTokens(unusedCost)} 토큰을 아끼고, 엉뚱한 스킬이 불릴 일도 줄어듭니다.
+                  {fresh > 0 && ` (최근 ${NEW_INSTALL_DAYS}일 안에 설치한 ${fresh}개는 제외)`}
+                </div>
               </div>
               <button onClick={() => toggleMany(unused, false)}>모두 끄기</button>
             </div>
@@ -74,7 +83,7 @@ function Diet({ go }: { go: (v: "installed") => void }) {
                 <li key={p.id}>
                   <div className="pl-main">
                     <div className="pl-name">{p.displayName}</div>
-                    <div className="pl-desc">{koDescription(p.id) || p.description}</div>
+                    <div className="pl-desc">{koFor(p) || p.description}</div>
                   </div>
                   <span className="muted small">~{formatTokens(alwaysOnTokens(p))}</span>
                   <Toggle checked={p.enabled} disabled={!p.toggleable || !!snap.settingsError} onChange={(v) => toggle(p, v)} label={`${p.displayName} 켜기/끄기`} />

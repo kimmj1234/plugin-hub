@@ -359,7 +359,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   // 사용 분석: 대화 기록에서 최근 30일 동안 플러그인을 몇 번 썼는지 (터미널·Code 탭 플러그인만)
   const [usage, setUsage] = useState<Record<string, PluginUsage> | null>(null);
   const [usageSessions, setUsageSessions] = useState(0);
-  const cliNames = snap ? [...new Set(snap.plugins.filter((p) => p.surface === "cli").map((p) => p.name))].sort().join("\n") : "";
+  const cliNames = snap ? [...new Set(snap.plugins.filter((p) => p.surface === "cli").flatMap((p) => [p.name, p.displayName]))].sort().join("\n") : "";
   const refreshUsage = useCallback(async () => {
     if (!cliNames) return;
     try {

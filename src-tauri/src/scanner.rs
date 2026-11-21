@@ -143,36 +143,83 @@ fn md_components(dir: &Path, nested_file: Option<&str>) -> Vec<Component> {
             ),
             _ => continue,
         };
-        let fm = match read_limited(&file, MAX_PLUGIN_TEXT_BYTES, false) {
-            Ok(t) => parse_frontmatter(&t),
-            Err(_) => continue,
-        };
-        out.push(match fm {
-            Some(f) => Component {
-                name: f.name.unwrap_or(fallback),
-                description: f.description.unwrap_or_default(),
-                argument_hint: f.argument_hint,
-                user_invocable: f.user_invocable,
-                model_invocable: f.model_invocable,
-                examples: f.examples,
-            },
-            None => Component {
-                name: fallback,
-                user_invocable: true,
-                model_invocable: true,
-                ..Default::default()
-            },
-        });
+        if let Some(c) = md_component(&file, fallback) {
+            out.push(c);
+        }
     }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// 마크다운 파일 하나를 구성 요소로 읽는다 (프론트매터의 name·description)
+fn md_component(file: &Path, fallback: String) -> Option<Component> {
+    let fm = parse_frontmatter(&read_limited(file, MAX_PLUGIN_TEXT_BYTES, false).ok()?);
+    Some(match fm {
+        Some(f) => Component {
+            name: f.name.unwrap_or(fallback),
+            description: f.description.unwrap_or_default(),
+            argument_hint: f.argument_hint,
+            user_invocable: f.user_invocable,
+            model_invocable: f.model_invocable,
+            examples: f.examples,
+        },
+        None => Component {
+            name: fallback,
+            user_invocable: true,
+            model_invocable: true,
+            ..Default::default()
+        },
+    })
+}
+
+/// plugin.json의 "skills"/"commands"/"agents"에 적힌 추가 경로 (문자열 또는 배열).
+/// 플러그인 폴더 밖을 가리키는 경로(절대 경로, .., 링크 탈출)는 무시한다.
+fn manifest_paths(root: &Path, manifest: &Value, key: &str) -> Vec<PathBuf> {
+    let list: Vec<&str> = match manifest.get(key) {
+        Some(Value::String(s)) => vec![s.as_str()],
+        Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect(),
+        _ => return vec![],
+    };
+    let Ok(base) = fs::canonicalize(root) else { return vec![] };
+    list.into_iter()
+        .filter(|s| !s.is_empty() && !Path::new(s).is_absolute())
+        .filter_map(|s| fs::canonicalize(root.join(s)).ok())
+        .filter(|p| p.starts_with(&base))
+        .take(20)
+        .collect()
+}
+
+/// 기본 폴더(skills/ 등) + plugin.json에 적힌 추가 경로에서 구성 요소를 모은다.
+/// 스킬 경로는 SKILL.md가 바로 들어 있는 폴더(스킬 하나)이거나 스킬 폴더들을 담은 폴더일 수 있다.
+fn collect(root: &Path, manifest: &Value, key: &str, default_dir: &str, nested: Option<&str>) -> Vec<Component> {
+    let mut out = md_components(&root.join(default_dir), nested);
+    let plugin_name = str_of(manifest, "name").unwrap_or_default();
+    for p in manifest_paths(root, manifest, key) {
+        if p.is_file() {
+            let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            out.extend(md_component(&p, stem));
+        } else if let Some(f) = nested.filter(|f| p.join(f).is_file()) {
+            let fallback = if p == fs::canonicalize(root).unwrap_or_default() {
+                plugin_name.clone()
+            } else {
+                p.file_name().unwrap_or_default().to_string_lossy().to_string()
+            };
+            out.extend(md_component(&p.join(f), fallback));
+        } else if p.is_dir() {
+            out.extend(md_components(&p, nested));
+        }
+    }
+    let mut seen = HashSet::new();
+    out.retain(|c| seen.insert(c.name.clone()));
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
 pub fn components(root: &Path, manifest: &Value) -> Components {
     let mut c = Components {
-        skills: md_components(&root.join("skills"), Some("SKILL.md")),
-        commands: md_components(&root.join("commands"), None),
-        agents: md_components(&root.join("agents"), None),
+        skills: collect(root, manifest, "skills", "skills", Some("SKILL.md")),
+        commands: collect(root, manifest, "commands", "commands", None),
+        agents: collect(root, manifest, "agents", "agents", None),
         ..Default::default()
     };
     if let Ok(h) = read_plugin_json(&root.join("hooks").join("hooks.json")) {
@@ -394,6 +441,7 @@ fn build_plugin(
         components: comps,
         toggleable: surface == "cli",
         app_ref: None,
+        installed_at: install.and_then(|i| str_of(i, "installedAt")),
     }
 }
 
