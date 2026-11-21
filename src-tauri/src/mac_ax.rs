@@ -186,7 +186,9 @@ fn is_search_field(e: &El) -> bool {
 }
 
 fn link_named(e: &El, name: &str) -> bool {
-    if e.role() != "AXLink" {
+    // 추가할 수 있는 결과는 링크, "계정에 추가됨" 줄은 버튼으로 나온다 (Claude 앱 2026-11 기준)
+    let role = e.role();
+    if role != "AXLink" && role != "AXButton" {
         return false;
     }
     let n = name.to_lowercase();
@@ -234,6 +236,27 @@ pub fn choose_button(near: usize, total: usize) -> Result<Option<bool>, String> 
         (0, 0) => Ok(None),
         _ => Err("추가 버튼이 여러 개라 자동으로 누르지 않았습니다. Claude 앱에서 직접 추가해 주세요.".into()),
     }
+}
+
+const ADDED_SECTION: &[&str] = &["계정에 추가됨", "Added to your account", "Added to account", "Installed"];
+
+/// 이 결과가 디렉터리의 "계정에 추가됨" 구역 안에 있는가 (가까운 조상의 제목으로 판단)
+fn in_added_section(e: &El) -> bool {
+    let mut cur = e.parent();
+    for _ in 0..4 {
+        let Some(p) = cur else { return false };
+        for c in p.children() {
+            if c.role() == "AXHeading" {
+                let mut t = vec![];
+                c.texts(0, &mut t);
+                if t.iter().any(|x| ADDED_SECTION.iter().any(|a| x.trim().eq_ignore_ascii_case(a))) {
+                    return true;
+                }
+            }
+        }
+        cur = p.parent();
+    }
+    false
 }
 
 const ADD: &[&str] = &["추가", "Add"];
@@ -317,8 +340,23 @@ pub fn install(name: &str, repo: Option<&str>, open_directory: impl Fn() -> Resu
     std::thread::sleep(Duration::from_millis(300));
     post_text(pid, name)?;
 
-    let link = wait_result(Duration::from_secs(15), || pick_link(find_all(&app, &|e| link_named(e, name)), repo))?
-        .ok_or_else(|| format!("Claude 앱 검색 결과에서 '{name}'을(를) 찾지 못했습니다."))?;
+    enum Hit {
+        Already,
+        Link(El),
+    }
+    let hit = wait_result(Duration::from_secs(15), || {
+        let found = find_all(&app, &|e| link_named(e, name));
+        if found.iter().any(in_added_section) {
+            return Ok(Some(Hit::Already));
+        }
+        let addable: Vec<El> = found.into_iter().filter(|e| e.role() == "AXLink").collect();
+        Ok(pick_link(addable, repo)?.map(Hit::Link))
+    })?
+    .ok_or_else(|| format!("Claude 앱 검색 결과에서 '{name}'을(를) 찾지 못했습니다."))?;
+    let link = match hit {
+        Hit::Already => return Ok(Outcome::AlreadyAdded),
+        Hit::Link(l) => l,
+    };
     if !link.press() {
         return Err("검색 결과를 열지 못했습니다.".into());
     }
