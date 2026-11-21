@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
-import type { Catalog, Diagnostic, Group, InstallScope, Plugin, Prefs, ProjectFolder, Snapshot } from "./types";
+import type { Catalog, Diagnostic, Group, InstallScope, Plugin, PluginUsage, Prefs, ProjectFolder, Snapshot } from "./types";
 
 export interface Toast {
   id: number;
@@ -36,7 +36,13 @@ interface HubCtx {
   addProject: (path: string) => Promise<boolean>;
   removeProject: (path: string) => Promise<void>;
   setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
+  usage: Record<string, PluginUsage> | null;
+  usageDays: number;
+  usageSessions: number;
+  refreshUsage: () => Promise<void>;
 }
+
+export const USAGE_DAYS = 30;
 
 const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false };
 
@@ -319,6 +325,26 @@ export function HubProvider({ children }: { children: ReactNode }) {
     }
   }, [prefs.autoUpdatePlugins, refreshCatalog]);
 
+  // 사용 분석: 대화 기록에서 최근 30일 동안 플러그인을 몇 번 썼는지 (터미널·Code 탭 플러그인만)
+  const [usage, setUsage] = useState<Record<string, PluginUsage> | null>(null);
+  const [usageSessions, setUsageSessions] = useState(0);
+  const cliNames = snap ? [...new Set(snap.plugins.filter((p) => p.surface === "cli").map((p) => p.name))].sort().join("\n") : "";
+  const refreshUsage = useCallback(async () => {
+    if (!cliNames) return;
+    try {
+      const r = await api.usage(cliNames.split("\n"), USAGE_DAYS);
+      setUsage(Object.fromEntries(r.plugins.map((u) => [u.plugin, u])));
+      setUsageSessions(r.sessions);
+    } catch (e) {
+      console.warn("usage", e);
+    }
+  }, [cliNames]);
+  useEffect(() => {
+    refreshUsage();
+    const timer = setInterval(refreshUsage, 10 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [refreshUsage]);
+
   const setPrefs = useCallback(
     async (p: Prefs) => {
       setPrefsState(p);
@@ -387,7 +413,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder }}
+      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder, usage, usageDays: USAGE_DAYS, usageSessions, refreshUsage }}
     >
       {children}
     </Ctx.Provider>

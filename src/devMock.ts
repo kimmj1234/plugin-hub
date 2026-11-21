@@ -188,6 +188,16 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
   switch (cmd) {
     case "scan":
       return snapshot();
+    case "get_usage": {
+      const fake: Record<string, [number, number]> = { superpowers: [23, 0], "commit-helper": [6, 3] };
+      return {
+        days: args.days,
+        sessions: 41,
+        plugins: (args.names as string[])
+          .filter((n) => fake[n])
+          .map((n) => ({ plugin: n, count: fake[n][0], lastUsed: new Date(Date.now() - fake[n][1] * 86_400_000).toISOString() })),
+      };
+    }
     case "set_enabled": {
       const p = plugins.find((x) => x.id === args.id && x.surface === "cli");
       if (p) p.enabled = args.enabled;

@@ -375,3 +375,50 @@ fn auto_install_real() {
     println!("auto_install({name}) = {r:?}");
     assert!(r.is_ok());
 }
+
+#[test]
+fn usage_counts_skills_commands_agents_mcp() {
+    use crate::usage;
+    let names: Vec<String> = ["axhub", "commit-commands", "my_tool"].iter().map(|s| s.to_string()).collect();
+    let line = r#"{"type":"assistant","timestamp":"2026-11-20T10:00:00.000Z","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"axhub:deploy"}}]}}"#;
+    assert_eq!(usage::plugins_in_line(line, &names), vec!["axhub"]);
+    let cmd = r#"{"type":"user","message":{"content":"<command-name>/commit-commands:commit</command-name>"}}"#;
+    assert_eq!(usage::plugins_in_line(cmd, &names), vec!["commit-commands"]);
+    let mcp = r#"{"content":[{"type":"tool_use","name":"mcp__plugin_my_tool_server__run"}]}"#;
+    assert_eq!(usage::plugins_in_line(mcp, &names), vec!["my_tool"]);
+    // 접두사 없는 스킬, 모르는 플러그인은 세지 않는다
+    let other = r#"{"name":"Skill","input":{"skill":"dataviz"}} {"subagent_type":"general-purpose"} {"subagent_type":"unknown:agent"}"#;
+    assert!(usage::plugins_in_line(other, &names).is_empty());
+
+    assert_eq!(usage::iso_utc(0), "1970-01-01T00:00:00");
+    assert_eq!(usage::iso_utc(1_795_219_200), "2026-11-21T00:00:00");
+
+    let root = temp_dir("usage");
+    write(
+        root.join("proj/a.jsonl"),
+        &[
+            line,
+            line,
+            cmd,
+            r#"{"timestamp":"2020-01-01T00:00:00.000Z","name":"Skill","input":{"skill":"commit-commands:commit"}}"#,
+        ]
+        .join("\n"),
+    );
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_795_219_200);
+    // 파일 수정 시각은 지금이라 30일 범위 안. 2020년 줄은 timestamp로 제외된다.
+    let r = usage::scan_in(&root, &names, 30, std::time::SystemTime::now().max(now));
+    let ax = r.plugins.iter().find(|u| u.plugin == "axhub").unwrap();
+    assert_eq!(ax.count, 2);
+    assert_eq!(ax.last_used.as_deref(), Some("2026-11-20T10:00:00.000Z"));
+    assert_eq!(r.plugins.iter().find(|u| u.plugin == "commit-commands").unwrap().count, 1);
+    assert_eq!(r.sessions, 1);
+}
+
+#[test]
+#[ignore]
+fn usage_real_readonly() {
+    let names: Vec<String> = ["axhub", "frontend-design", "feature-dev", "commit-commands", "anthropic-skills"].iter().map(|s| s.to_string()).collect();
+    let t = std::time::Instant::now();
+    let r = crate::usage::scan(&names, 30);
+    println!("{:?} in {:?}", r, t.elapsed());
+}

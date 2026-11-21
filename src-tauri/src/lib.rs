@@ -10,6 +10,7 @@ mod rules;
 mod scanner;
 mod settings;
 mod store;
+mod usage;
 #[cfg(test)]
 mod tests;
 mod watcher;
@@ -304,6 +305,15 @@ async fn update_marketplaces(state: State<'_, AppState>) -> Result<String, Strin
 }
 
 #[tauri::command]
+async fn get_usage(names: Vec<String>, days: u32) -> Result<usage::UsageReport, String> {
+    if names.len() > 500 || names.iter().any(|n| n.is_empty() || n.len() > 128) {
+        return Err("잘못된 플러그인 이름입니다".into());
+    }
+    let days = days.clamp(1, 365);
+    blocking(move || Ok(usage::scan(&names, days))).await
+}
+
+#[tauri::command]
 async fn ai_status() -> Result<AiStatus, String> {
     blocking(|| Ok(guide::status())).await
 }
@@ -453,7 +463,8 @@ pub fn run() {
             add_project,
             remove_project,
             suggest_projects,
-            set_folder_enabled
+            set_folder_enabled,
+            get_usage
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

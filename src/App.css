@@ -5,7 +5,7 @@
   --text: #1c1f24;
   --muted: #6b7280;
   --line: #e3e6ea;
-  --accent: #d97757;
+  --accent: #4f46e5;
   --accent-ink: #ffffff;
   --ok: #15803d;
   --bad: #c2410c;
@@ -38,6 +38,8 @@
     --info-bg: #172033;
     --ok-bg: #15241a;
     --code: #2a2d33;
+    --accent: #8f93ff;
+    --accent-ink: #15143d;
   }
 }
 
@@ -153,6 +155,10 @@ ul.plain { list-style: none; padding: 0; margin: 0; line-height: 1.9; }
 .pl-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .pl-desc { font-size: 12px; color: var(--text); opacity: 0.8; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .pl-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.pl-desc { font-size: 12px; color: var(--text); opacity: .8; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+.warn-text { color: var(--bad); }
+.bad-text { color: var(--err); }
+.badge.cost { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .dot.bad { background: var(--bad); }
 .more { align-self: center; }
@@ -279,3 +285,20 @@ button.link.danger { color: var(--err); }
 .install-guide.ok { border-left-color: var(--ok); }
 .install-guide ol { margin: 6px 0; padding-left: 18px; display: grid; gap: 3px; }
 .install-guide kbd { font-family: inherit; font-size: 11px; padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--panel); }
+
+/* 플러그인 다이어트 (대시보드) */
+.diet { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+.diet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.diet-total { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.diet-total span { font-size: 15px; font-weight: 500; color: var(--muted); }
+.diet-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; gap: 2px; margin: 14px 0 8px; background: var(--code); }
+.diet-bar span { min-width: 3px; }
+.diet-legend { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; }
+.diet-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.diet-unused { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+.diet-unused-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.diet-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.diet-list li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.diet-list li:last-child { border-bottom: 0; }
+.tiny { font-size: 11px; margin: 8px 0 0; }
+details.note summary { cursor: pointer; }

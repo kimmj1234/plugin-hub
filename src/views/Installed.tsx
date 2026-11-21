@@ -3,12 +3,14 @@ import { useHub } from "../hub";
 import { Toggle } from "../components/Toggle";
 import { PluginDetail } from "../components/PluginDetail";
 import type { Plugin, Surface } from "../types";
+import { koDescription } from "../catalogMeta";
+import { alwaysOnTokens, formatTokens, usageLabel } from "../cost";
 
 const ALL = "__all";
 const UNGROUPED = "__none";
 
 export function Installed() {
-  const { snap, groups, setGroups, toggle, toggleMany } = useHub();
+  const { snap, groups, setGroups, toggle, toggleMany, usage, usageDays } = useHub();
   const [surface, setSurface] = useState<Surface>("cli");
   const [folder, setFolder] = useState<string>(ALL);
   const [query, setQuery] = useState("");
@@ -113,10 +115,18 @@ export function Installed() {
                   {problemIds.has(p.id) && <span className="dot bad" title="문제 감지됨" />}
                   {p.displayName}
                 </div>
+                {(koDescription(p.id) || p.description) && <div className="pl-desc">{koDescription(p.id) || p.description}</div>}
                 <div className="pl-sub">
-                  {p.marketplace || "출처 미상"}
-                  {p.version && ` · v${p.version}`}
-                  {!p.installed && " · 미설치"}
+                  {!p.installed ? (
+                    <span className="bad-text">설치되지 않음</span>
+                  ) : (
+                    <>
+                      <span title="매 세션 컨텍스트에 들어가는 양(추정)">~{formatTokens(alwaysOnTokens(p))} 토큰</span>
+                      {surface === "cli" && usage && (
+                        <span className={p.enabled && !usage[p.name]?.count ? "warn-text" : ""}> · {usageLabel(usage[p.name], usageDays)}</span>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
               <Toggle

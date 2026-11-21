@@ -31,8 +31,8 @@ export function Diagnostics() {
           </section>
         );
       })}
-      <section>
-        <h2>검사하는 규칙</h2>
+      <details className="rules">
+        <summary className="muted small">어떤 것을 검사하나요? (규칙 14개)</summary>
         <ul className="plain small">
           <li>켜져 있지만 설치되지 않은 플러그인 (설정 찌꺼기) — 자동 정리</li>
           <li>설치 폴더가 사라졌거나 plugin.json이 손상된 플러그인 — 다시 설치</li>
@@ -46,7 +46,7 @@ export function Diagnostics() {
           <li>settings.json·폴더 설정 파일 형식 오류, 설치 기록을 읽을 수 없는 경우</li>
           <li>등록한 폴더가 사라졌거나, 폴더 설정에서만 켜지고 설치되지 않은 플러그인</li>
         </ul>
-      </section>
+      </details>
     </div>
   );
 }

@@ -11,9 +11,10 @@ import { GuidePanel } from "./GuidePanel";
 import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
 import { ScopeEditor } from "./ScopeEditor";
 import { AppUsage } from "./AppUsage";
+import { alwaysOnTokens, formatTokens, usageLabel } from "../cost";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
-  const { snap, toggle, uninstall, update, busy, groups, setGroups, toast } = useHub();
+  const { snap, toggle, uninstall, update, busy, groups, setGroups, toast, usage, usageDays } = useHub();
   const [readme, setReadme] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const p = plugin;
@@ -71,6 +72,8 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         {p.scope && <span className="badge">설치 범위: {p.scope === "user" ? "PC 전체" : p.scope === "local" ? "폴더·나만" : "폴더·팀 공유"}</span>}
         {p.author && <span className="badge">제작: {p.author}</span>}
         <span className="badge">슬래시 명령 {direct.length}개</span>
+        <span className="badge cost" title="세션을 시작할 때마다 스킬·명령·에이전트 설명이 컨텍스트에 들어갑니다. 추정값입니다.">매 세션 약 {formatTokens(alwaysOnTokens(p))} 토큰{c.mcpServers.length ? " + MCP" : ""}</span>
+        {p.surface === "cli" && usage && <span className={`badge ${usage[p.name]?.count ? "ok" : "warn"}`}>{usageLabel(usage[p.name], usageDays)}</span>}
       </div>
 
       {!p.toggleable && (

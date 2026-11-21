@@ -186,3 +186,15 @@ export interface HubState {
   projects: ProjectFolder[];
   prefs: Prefs;
 }
+
+export interface PluginUsage {
+  plugin: string;
+  count: number;
+  lastUsed: string | null;
+}
+
+export interface UsageReport {
+  days: number;
+  sessions: number;
+  plugins: PluginUsage[];
+}

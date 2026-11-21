@@ -62,8 +62,19 @@ export function formatStars(n: number | null): string {
 
 const ko = koCatalog as Record<string, string>;
 
+const koByName = new Map<string, string>();
+for (const [id, text] of Object.entries(ko)) {
+  const name = id.split("@")[0];
+  if (!koByName.has(name)) koByName.set(name, text);
+}
+
+const OFFICIAL = new Set(["anthropic-plugin-directory", "claude-plugins-official"]);
+
+// 공식 플러그인은 두 공식 마켓플레이스 이름 중 어느 쪽으로 설치돼도 한국어 요약을 찾는다.
+// (다른 마켓플레이스의 같은 이름 플러그인은 내용이 다를 수 있어 쓰지 않는다)
 export function koDescription(pluginId: string): string | null {
-  return ko[pluginId] ?? null;
+  const [name, market] = pluginId.split("@");
+  return ko[pluginId] ?? (OFFICIAL.has(market) ? koByName.get(name) : undefined) ?? null;
 }
 
 export function topPopular<T extends { sourceUrl: string | null }>(list: T[], n = 5): T[] {

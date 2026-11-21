@@ -20,6 +20,11 @@ pub fn plugins_dir() -> PathBuf {
     claude_home().join("plugins")
 }
 
+/// Claude Code 대화 기록(JSONL) 폴더. 사용 분석에만 읽기 전용으로 쓴다.
+pub fn transcripts_dir() -> PathBuf {
+    claude_home().join("projects")
+}
+
 pub fn installed_plugins_file() -> PathBuf {
     plugins_dir().join("installed_plugins.json")
 }

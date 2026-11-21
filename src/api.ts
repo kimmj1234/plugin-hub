@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { AiStatus, Catalog, CliResult, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Snapshot, Surface } from "./types";
+import type { AiStatus, Catalog, CliResult, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Snapshot, Surface, UsageReport } from "./types";
 
 export const api = {
   scan: () => invoke<Snapshot>("scan"),
+  usage: (names: string[], days: number) => invoke<UsageReport>("get_usage", { names, days }),
   setEnabled: (id: string, enabled: boolean, scope?: string | null, projectPath?: string | null) =>
     invoke<void>("set_enabled", { id, enabled, scope: scope ?? null, projectPath: projectPath ?? null }),
   setFolderEnabled: (id: string, projectPath: string, scope: "project" | "local", value: boolean | null) =>
