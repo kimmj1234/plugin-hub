@@ -18,7 +18,7 @@ function inline(text: string, key: string): ReactNode[] {
       const safe = /^https?:\/\//.test(href);
       out.push(
         safe ? (
-          <a key={k} href="#" onClick={(e) => { e.preventDefault(); openUrl(href); }}>
+          <a key={k} href="#" onClick={(e) => { e.preventDefault(); openUrl(href).catch(() => {}); }}>
             {label}
           </a>
         ) : (

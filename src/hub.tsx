@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
-import type { Catalog, Diagnostic, Group, Plugin, Prefs, ProjectFolder, Snapshot } from "./types";
+import type { Catalog, Diagnostic, Group, InstallScope, Plugin, Prefs, ProjectFolder, Snapshot } from "./types";
 
 export interface Toast {
   id: number;
@@ -33,7 +33,7 @@ interface HubCtx {
   projects: ProjectFolder[];
   prefs: Prefs;
   setPrefs: (p: Prefs) => Promise<void>;
-  addProject: (path: string) => Promise<void>;
+  addProject: (path: string) => Promise<boolean>;
   removeProject: (path: string) => Promise<void>;
   setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
 }
@@ -66,6 +66,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectFolder[]>([]);
   const [prefs, setPrefsState] = useState<Prefs>(DEFAULT_PREFS);
   const toastId = useRef(0);
+  const scanSeq = useRef(0);
+  const catalogAgain = useRef(false);
 
   const toast = useCallback((kind: Toast["kind"], text: string) => {
     const id = ++toastId.current;
@@ -76,8 +78,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const refresh = useCallback(async () => {
+    const seq = ++scanSeq.current;
     try {
       const s = await api.scan();
+      if (seq !== scanSeq.current) return;
       const important = s.diagnostics.filter((d) => d.severity !== "info");
       if (seenDiag.current) {
         for (const d of important) {
@@ -196,13 +200,16 @@ export function HubProvider({ children }: { children: ReactNode }) {
       switch (d.fix.kind) {
         case "remove-setting":
           if (d.pluginId) {
-            await withBusy(d.id, "정리 중", () => api.removeSetting(d.pluginId!));
-            toast("ok", "설정에서 항목을 제거했습니다");
+            const done = await withBusy(d.id, "정리 중", async () => {
+              await api.removeSetting(d.pluginId!);
+              return true;
+            });
+            if (done) toast("ok", "설정에서 항목을 제거했습니다");
           }
           break;
         case "reinstall":
           if (d.pluginId) {
-            const r = await withBusy(d.id, "설치 중", () => api.install(d.pluginId!));
+            const r = await withBusy(d.id, "설치 중", () => api.install(d.pluginId!, { scope: (p?.scope as InstallScope | null) ?? "user", projectPath: p?.projectPath }));
             if (r) reportCli("다시 설치", r);
           }
           break;
@@ -220,7 +227,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const refreshCatalog = useCallback(
     async (remote: boolean) => {
-      if (catalogBusy.current) return;
+      if (catalogBusy.current) {
+        catalogAgain.current = true;
+        return;
+      }
       catalogBusy.current = true;
       setCatalogLoading(true);
       try {
@@ -247,6 +257,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
       } finally {
         catalogBusy.current = false;
         setCatalogLoading(false);
+        if (catalogAgain.current) {
+          catalogAgain.current = false;
+          setTimeout(() => refreshCatalog(false), 0);
+        }
       }
     },
     [toast],
@@ -285,8 +299,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
         setProjects(st.projects);
         toast("ok", "폴더를 등록했습니다");
         refresh();
+        return true;
       } catch (e) {
         toast("error", errorText(e));
+        return false;
       }
     },
     [toast, refresh],

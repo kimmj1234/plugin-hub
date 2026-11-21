@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api } from "../api";
+import { api, errorText } from "../api";
 import { useHub } from "../hub";
 import type { Plugin } from "../types";
 import { koDescription } from "../catalogMeta";
@@ -12,12 +12,12 @@ import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
 import { ScopeEditor } from "./ScopeEditor";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
-  const { snap, toggle, uninstall, update, busy, groups, setGroups } = useHub();
+  const { snap, toggle, uninstall, update, busy, groups, setGroups, toast } = useHub();
   const [readme, setReadme] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const p = plugin;
   const c = p.components;
-  const diags = snap?.diagnostics.filter((d) => d.pluginId === p.id) ?? [];
+  const diags = p.surface === "cli" ? (snap?.diagnostics.filter((d) => d.pluginId === p.id) ?? []) : [];
   const busyLabel = busy[p.id];
   const groupId = groups.find((g) => g.pluginIds.includes(p.id))?.id ?? "";
   const hasUpdate = p.latestVersion && p.version && p.latestVersion !== p.version;
@@ -27,9 +27,13 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const autoOnly = slash.filter((s) => s.kind === "skill" && !s.comp.userInvocable);
 
   useEffect(() => {
+    let alive = true;
     setReadme(null);
     setConfirmRemove(false);
-    api.readme(p.id, p.surface).then(setReadme).catch(() => setReadme(null));
+    api.readme(p.id, p.surface).then((r) => alive && setReadme(r)).catch(() => alive && setReadme(null));
+    return () => {
+      alive = false;
+    };
   }, [p.id, p.surface]);
 
   const moveTo = (gid: string) => {
@@ -39,7 +43,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
     setGroups(next);
   };
 
-  const link = p.homepage || p.repository;
+  const link = [p.homepage, p.repository].find((u) => u && /^https?:\/\//i.test(u));
 
   return (
     <div className="detail">
@@ -83,7 +87,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
             ))}
           </select>
         )}
-        {link && <button onClick={() => openUrl(link)}>웹에서 보기</button>}
+        {link && <button onClick={() => openUrl(link).catch((e) => toast("error", errorText(e)))}>웹에서 보기</button>}
         {p.surface === "cli" && p.installed && hasUpdate && (
           <button disabled={!!busyLabel} onClick={() => update(p)}>업데이트</button>
         )}
@@ -163,7 +167,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
 
       <section>
         <h3>한국어 가이드</h3>
-        <GuidePanel id={p.id} version={p.version} surface={p.surface} installed={p.pathExists} name={p.displayName} description={p.description} />
+        <GuidePanel key={`${p.surface}:${p.id}`} id={p.id} version={p.version} surface={p.surface} installed={p.pathExists} name={p.displayName} description={p.description} />
       </section>
 
       <section>

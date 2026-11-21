@@ -14,7 +14,7 @@ export function Settings() {
   const pickAndSet = async () => {
     const path = await api.pickFolder();
     if (!path) return;
-    await addProject(path);
+    if (!(await addProject(path))) return;
     setPrefs({ ...prefs, defaultInstallProject: path });
   };
 

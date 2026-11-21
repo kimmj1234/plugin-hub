@@ -34,14 +34,13 @@ export function Scopes() {
   const add = async () => {
     const path = await api.pickFolder();
     if (path) {
-      await addProject(path);
-      setSelected(path);
+      if (await addProject(path)) setSelected(path);
     }
   };
 
-  const setAll = (scope: "project" | "local", value: boolean | null) => {
+  const setAll = async (scope: "project" | "local", value: boolean | null) => {
     if (!pr) return;
-    shown.forEach((p) => setFolder(p.id, pr.path, scope, value));
+    for (const p of shown) await setFolder(p.id, pr.path, scope, value);
   };
 
   return (
@@ -71,7 +70,7 @@ export function Scopes() {
             {suggestions.slice(0, 12).map((s) => (
               <div key={s.path} className="suggest-row" title={s.path}>
                 <span className="folder-label">{s.name}</span>
-                <button onClick={() => addProject(s.path).then(() => setSelected(s.path))}>추가</button>
+                <button onClick={() => addProject(s.path).then((ok) => ok && setSelected(s.path))}>추가</button>
               </div>
             ))}
           </div>

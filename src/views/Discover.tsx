@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api, cliMessage } from "../api";
+import { api, cliMessage, errorText } from "../api";
 import { useHub } from "../hub";
 import type { AcceptPrompt, CatalogEntry, InstallScope } from "../types";
 import { CATEGORIES, OTHER, POPULARITY_DATE, categorize, categoryById, formatStars, koDescription, stars, topPopular } from "../catalogMeta";
@@ -198,7 +198,7 @@ export function Discover() {
 
         <div className="muted small status-line">
           {catalog && `${sorted.length.toLocaleString()}개`}
-          {catalog && ` · ${new Date(catalog.fetchedAt).toLocaleTimeString()} 갱신 · 30분마다 자동 확인`}
+          {catalog && ` · ${new Date(catalog.fetchedAt).toLocaleTimeString()} 갱신 · ${prefs.remoteRefreshMinutes > 0 ? `${prefs.remoteRefreshMinutes >= 60 ? `${prefs.remoteRefreshMinutes / 60}시간` : `${prefs.remoteRefreshMinutes}분`}마다 자동 확인` : "자동 확인 꺼짐"}`}
           {catalog?.origin === "local-cache" && " · CLI가 없어 로컬 캐시를 보여줍니다 (설치 불가)"}
         </div>
 
@@ -255,12 +255,12 @@ export function Discover() {
                 selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => openConfirm(selected)}>설치</button>
               )}
               {selected.sourceUrl && /^https?:\/\//.test(selected.sourceUrl) && (
-                <button onClick={() => openUrl(selected.sourceUrl!)}>소스 저장소 열기</button>
+                <button onClick={() => openUrl(selected.sourceUrl!).catch((e) => toast("error", errorText(e)))}>소스 저장소 열기</button>
               )}
             </div>
             <section>
               <h3>한국어 가이드</h3>
-              <GuidePanel id={selected.pluginId} version={selected.version} installed={false} name={selected.name} description={selected.description} />
+              <GuidePanel key={selected.pluginId} id={selected.pluginId} version={selected.version} installed={false} name={selected.name} description={selected.description} />
             </section>
             <p className="note">
               설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.
@@ -301,7 +301,7 @@ export function Discover() {
                     <option value="">폴더 선택…</option>
                     {projects.map((p) => <option key={p.path} value={p.path}>{p.name}</option>)}
                   </select>
-                  <button onClick={async () => { const path = await api.pickFolder(); if (path) { await addProject(path); setInstProject(path); } }}>다른 폴더…</button>
+                  <button onClick={async () => { const path = await api.pickFolder(); if (path && (await addProject(path))) setInstProject(path); }}>다른 폴더…</button>
                 </div>
               )}
             </div>

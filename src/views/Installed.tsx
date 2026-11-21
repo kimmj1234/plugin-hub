@@ -27,7 +27,7 @@ export function Installed() {
     (p) => (surface === "desktop" || inFolder(p)) && (!q || `${p.displayName} ${p.id} ${p.description}`.toLowerCase().includes(q)),
   );
   const current = plugins.find((p) => p.id === selected) ?? null;
-  const problemIds = new Set(snap?.diagnostics.filter((d) => d.severity !== "info").map((d) => d.pluginId));
+  const problemIds = new Set(snap?.diagnostics.filter((d) => d.severity !== "info" && surface === "cli").map((d) => d.pluginId));
 
   const addGroup = () => {
     const name = newName.trim();

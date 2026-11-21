@@ -136,7 +136,7 @@ export function GuidePanel(props: {
         {status && status.cliFound && !status.loggedIn && (
           <>
             <button onClick={login}>Claude Code 로그인</button>
-            <button className="link" onClick={() => checkStatus()}>다시 확인</button>
+            <button className="link" onClick={() => checkStatus().catch(() => {})}>다시 확인</button>
           </>
         )}
       </div>

@@ -43,7 +43,8 @@ export function Diagnostics() {
           <li>켜진 플러그인이 너무 많아 매 세션 컨텍스트 비용이 커지는 경우</li>
           <li>세션마다 스크립트를 자동 실행하는 훅이 있는 플러그인</li>
           <li>Claude 앱과 터미널 양쪽에서 같은 플러그인을 켠 경우</li>
-          <li>settings.json 형식 오류</li>
+          <li>settings.json·폴더 설정 파일 형식 오류, 설치 기록을 읽을 수 없는 경우</li>
+          <li>등록한 폴더가 사라졌거나, 폴더 설정에서만 켜지고 설치되지 않은 플러그인</li>
         </ul>
       </section>
     </div>

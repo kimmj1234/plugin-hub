@@ -259,6 +259,7 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
     }
     case "remove_project":
       hub.projects = hub.projects.filter((p) => p.path !== args.path);
+      if (hub.prefs.defaultInstallProject === args.path) hub.prefs = { ...hub.prefs, defaultInstallProject: null, defaultInstallScope: "user" };
       return { ...hub, groups: groups.groups };
     case "suggest_projects":
       return [{ path: "~/dev/blog", name: "blog" }, { path: "~/Documents/개인-메모", name: "개인-메모" }];
