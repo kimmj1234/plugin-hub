@@ -145,11 +145,11 @@ pub fn generate(dir: &Path, id: &str, version: Option<&str>, context: &str) -> R
     let work = dir.join("guide-workdir");
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let prompt = format!("{INSTRUCTIONS}{}", truncate(context, CONTEXT_LIMIT));
-    let r = cli::run_in(
+    // 프롬프트는 표준 입력으로 넘긴다 (Windows 명령줄 길이·배치 파일 인자 제한 회피)
+    let r = cli::run_in_with_input(
         &work,
         &[
             "-p",
-            &prompt,
             "--output-format",
             "json",
             "--tools",
@@ -162,6 +162,7 @@ pub fn generate(dir: &Path, id: &str, version: Option<&str>, context: &str) -> R
             "--model",
             "sonnet",
         ],
+        &prompt,
         Duration::from_secs(240),
     )?;
     let outer: Value = serde_json::from_str(r.stdout.trim())

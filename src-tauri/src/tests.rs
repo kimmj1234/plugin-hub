@@ -616,3 +616,42 @@ fn manifest_custom_component_paths() {
     let _ = fs::remove_dir_all(&root);
     let _ = fs::remove_dir_all(&outside);
 }
+
+/// AI 가이드 프롬프트처럼 길고 줄바꿈·특수문자가 든 글을 표준 입력으로 그대로 넘기는지.
+/// Windows에서는 실제 .cmd 파일(npm 설치본 claude.cmd와 같은 형태)로 확인한다.
+/// 명령 인자로 넘기던 이전 방식은 Windows에서 "CLI 실행 실패"가 났다.
+#[test]
+fn long_prompt_goes_through_stdin() {
+    let dir = temp_dir("stdin");
+    let line = "한국어 설명과 \"따옴표\" & | ^ % < > 특수문자 줄입니다.";
+    let input: String = (0..1200).map(|i| format!("{i}: {line}\n")).collect();
+    assert!(input.chars().count() > 40_000, "Windows 명령줄 한도(약 32,000자)보다 길어야 의미 있음");
+
+    #[cfg(windows)]
+    let (bin, args): (PathBuf, Vec<&str>) = {
+        let cmd = dir.join("fake-claude.cmd");
+        fs::write(&cmd, "@findstr \"^\"\r\n").unwrap();
+        (cmd, vec!["-p", "--output-format", "json"])
+    };
+    #[cfg(not(windows))]
+    let (bin, args): (PathBuf, Vec<&str>) = (PathBuf::from("/bin/cat"), vec![]);
+
+    let r = crate::cli::run_raw_with_input_for_test(&bin, &dir, &args, &input, std::time::Duration::from_secs(60)).expect("실행돼야 함");
+    assert!(r.ok, "종료 코드 실패: {:?} {}", r.code, r.stderr);
+    let norm = |s: &str| s.replace("\r\n", "\n");
+    assert_eq!(norm(&r.stdout).trim_end(), norm(&input).trim_end(), "입력이 그대로 전달돼야 함");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// 원인 기록: Windows에서 .cmd에 줄바꿈이 든 인자를 넘기면 Rust가 실행 자체를 거부한다.
+/// (이전에는 AI 가이드 프롬프트를 이렇게 넘겨서 "CLI 실행 실패"가 났다)
+#[cfg(windows)]
+#[test]
+fn windows_cmd_rejects_newline_arguments() {
+    let dir = temp_dir("cmdarg");
+    let cmd = dir.join("fake-claude.cmd");
+    fs::write(&cmd, "@echo ok\r\n").unwrap();
+    let r = std::process::Command::new(&cmd).args(["-p", "첫 줄\n둘째 줄"]).output();
+    assert!(r.is_err(), "줄바꿈 인자는 거부돼야 함 (이것이 이전 실패 원인)");
+    let _ = fs::remove_dir_all(&dir);
+}

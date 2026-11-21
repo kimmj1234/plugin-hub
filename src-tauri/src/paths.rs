@@ -124,6 +124,12 @@ pub fn bundled_cli_versions() -> Vec<(String, PathBuf)> {
             continue;
         };
         for b in builds.flatten() {
+            // 버전 폴더 바로 아래에 실행 파일이 있는 구조(claude-code/<버전>/claude.exe)도 지원
+            let direct = b.path();
+            if direct.is_file() && CLI_NAMES.iter().any(|n| direct.file_name().is_some_and(|f| f == *n)) {
+                found.push((ver_name.clone(), direct));
+                break;
+            }
             let bin = bundled_binary(&b.path());
             if bin.is_file() {
                 found.push((ver_name.clone(), bin));

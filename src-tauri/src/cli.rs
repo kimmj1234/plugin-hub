@@ -51,20 +51,35 @@ pub fn active_cli() -> Option<CliInfo> {
 }
 
 fn run_raw(bin: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
-    run_raw_in(bin, &paths::home(), args, timeout)
+    run_raw_in(bin, &paths::home(), args, None, timeout)
 }
 
-fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
+/// `input`이 있으면 표준 입력으로 넘긴다. 긴 글(AI 가이드 프롬프트)은 명령 인자로 넘기면
+/// Windows에서 실행이 거부된다: 명령줄 길이 한도(약 32,000자)를 넘거나, npm 설치본(claude.cmd)에는
+/// 줄바꿈이 든 인자를 넘길 수 없다(Rust의 배치 파일 인자 보호). 표준 입력에는 이런 제한이 없다.
+fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], input: Option<&str>, timeout: Duration) -> Result<CliResult, String> {
     let mut cmd = Command::new(bin);
     cmd.args(args)
         .current_dir(cwd)
         .env("PATH", paths::child_path())
         .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     paths::own_process_group(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("CLI 실행 실패: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("CLI 실행 실패 ({}): {e}", bin.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))?;
+    if let Some(text) = input {
+        // 쓰기는 별도 스레드에서: 출력 버퍼가 차서 서로 기다리는 일(교착)을 막는다
+        let mut stdin = child.stdin.take().ok_or("stdin 없음")?;
+        let data = text.as_bytes().to_vec();
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(&data);
+            // 여기서 stdin이 닫혀 CLI가 입력 끝을 안다
+        });
+    }
 
     let reader = |mut r: Box<dyn Read + Send>| {
         let (tx, rx) = mpsc::channel();
@@ -129,7 +144,18 @@ pub fn run(args: &[&str], timeout: Duration) -> Result<CliResult, String> {
 
 pub fn run_in(cwd: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
     let cli = active_cli().ok_or_else(|| "Claude Code CLI를 찾지 못했습니다.".to_string())?;
-    run_raw_in(Path::new(&cli.path), cwd, args, timeout)
+    run_raw_in(Path::new(&cli.path), cwd, args, None, timeout)
+}
+
+/// 긴 입력을 표준 입력으로 넘겨 실행한다 (AI 가이드)
+pub fn run_in_with_input(cwd: &Path, args: &[&str], input: &str, timeout: Duration) -> Result<CliResult, String> {
+    let cli = active_cli().ok_or_else(|| "Claude Code CLI를 찾지 못했습니다.".to_string())?;
+    run_raw_in(Path::new(&cli.path), cwd, args, Some(input), timeout)
+}
+
+#[cfg(test)]
+pub fn run_raw_with_input_for_test(bin: &Path, cwd: &Path, args: &[&str], input: &str, timeout: Duration) -> Result<CliResult, String> {
+    run_raw_in(bin, cwd, args, Some(input), timeout)
 }
 
 fn find_accept_prompt(stdout: &str) -> Option<AcceptPrompt> {
