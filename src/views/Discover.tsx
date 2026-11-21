@@ -43,7 +43,7 @@ export function Discover() {
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
   const [surface, setSurfaceState] = useState<Surface>(loadSurface);
-  const [pending, setPending] = useState<{ entry: CatalogEntry; search: string; copied: boolean } | null>(null);
+  const [pending, setPending] = useState<{ entry: CatalogEntry; search: string; repo: string | null } | null>(null);
   const setSurface = (s: Surface) => {
     setSurfaceState(s);
     setSelectedId(null);
@@ -99,19 +99,26 @@ export function Discover() {
   );
   const installedCount = (s: Surface) => (s === "cli" ? cliIds.size : appPlugins.length);
 
+  const marketRepo = (e: CatalogEntry) => {
+    if (e.marketplace === DIRECTORY) return null;
+    const src = snap?.marketplaces.find((m) => m.name === e.marketplace)?.source ?? "";
+    return /^[\w.-]+\/[\w.-]+$/.test(src) || /^https:\/\/[\w.-]+(\/[\w.-]+){2,}$/.test(src) ? src : null;
+  };
   const installInApp = async (e: CatalogEntry) => {
     const search = e.appName || e.name;
-    setPending({ entry: e, search, copied: false });
+    const repo = marketRepo(e);
+    setPending({ entry: e, search, repo });
     try {
-      await openUrl(`https://claude.ai/customize/plugins?q=${encodeURIComponent(search)}`);
-    } catch (err) {
-      toast("error", errorText(err));
-    }
-  };
-  const syncApp = async () => {
-    try {
-      await api.openInClaudeApp("plugins");
-      toast("info", "Claude 앱 플러그인 화면을 열어 계정 설치 목록을 받아오게 했습니다. 몇 초 안에 반영됩니다.");
+      if (repo) {
+        await api.openInClaudeApp("add-marketplace", repo, e.name);
+      } else {
+        try {
+          await navigator.clipboard.writeText(search);
+        } catch {
+          toast("info", `검색창에 '${search}'를 입력하세요.`);
+        }
+        await api.openInClaudeApp("plugins");
+      }
     } catch (err) {
       toast("error", errorText(err));
     }
@@ -220,7 +227,7 @@ export function Discover() {
         ) : surface === "cli" ? (
           e.installable && <button onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}>설치</button>
         ) : (
-          <button onClick={(ev) => { ev.stopPropagation(); installInApp(e); }} title="claude.ai에서 이 플러그인 검색 결과를 엽니다">앱에 설치</button>
+          <button onClick={(ev) => { ev.stopPropagation(); installInApp(e); }} title="Claude 앱에서 이 플러그인을 설치합니다">앱에 설치</button>
         )}
       </li>
     );
@@ -248,16 +255,21 @@ export function Discover() {
               </>
             ) : (
               <>
-                <strong>'{pending.search}' Claude 앱에 설치하기</strong>
-                <ol className="small">
-                  <li>브라우저에 claude.ai 플러그인 검색 결과가 열렸습니다. 맨 위의 <strong>{pending.search}</strong>를 누릅니다.</li>
-                  <li>오른쪽 위 <strong>추가</strong>를 누릅니다. (Claude 앱과 같은 계정이라 앱에도 설치됩니다)</li>
-                  <li>아래 <strong>Claude 앱에 반영</strong>을 누르면 Claude 앱이 설치 목록을 바로 받아옵니다.</li>
-                </ol>
-                <p className="muted small">반영되면 이 안내가 자동으로 '설치 완료'로 바뀝니다. 브라우저에 로그인이 안 되어 있으면 Claude 앱과 같은 계정으로 로그인하세요.</p>
+                <strong>'{pending.search}' Claude 앱에서 설치하기</strong>
+                {pending.repo ? (
+                  <ol className="small">
+                    <li>Claude 앱에 <strong>마켓플레이스 추가</strong> 창이 열렸습니다. URL에 <code className="mono">{pending.repo}</code>가 들어가 있습니다.</li>
+                    <li><strong>동기화</strong>를 누른 뒤 목록에서 <strong>{pending.search}</strong>의 <strong>추가</strong>를 누릅니다.</li>
+                  </ol>
+                ) : (
+                  <ol className="small">
+                    <li>Claude 앱의 플러그인 화면이 열렸습니다. 위쪽 <strong>검색</strong>창을 누르고 <strong>⌘V</strong>로 붙여 넣습니다. (<strong>{pending.search}</strong>가 복사되어 있습니다)</li>
+                    <li>검색 결과에서 <strong>{pending.search}</strong>를 누르고 <strong>추가</strong>를 누릅니다.</li>
+                  </ol>
+                )}
+                <p className="muted small">Claude 앱 안에서 바로 내려받아 설치되고, 끝나면 이 안내가 자동으로 '설치 완료'로 바뀝니다. 브라우저는 열리지 않습니다.</p>
                 <div className="row">
-                  <button className="primary" onClick={syncApp}>Claude 앱에 반영</button>
-                  <button onClick={() => installInApp(pending.entry)}>검색 결과 다시 열기</button>
+                  <button className="primary" onClick={() => installInApp(pending.entry)}>Claude 앱 다시 열기</button>
                   <button className="link" onClick={() => setPending(null)}>취소</button>
                 </div>
               </>
@@ -267,7 +279,7 @@ export function Discover() {
         <p className="muted small surface-help">
           {surface === "cli"
             ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
-            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 브라우저에 이 플러그인의 검색 결과가 열립니다. '추가' 후 'Claude 앱에 반영'을 누르면 여기에 바로 표시됩니다."}
+            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱이 열리고, 앱 안에서 '추가'를 누르면 바로 설치되어 여기에 표시됩니다."}
         </p>
 
         <div className="toolbar">
@@ -374,7 +386,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "'Claude 앱에 설치'를 누르면 브라우저에 이 플러그인의 claude.ai 검색 결과가 열립니다. 플러그인을 눌러 '추가'한 뒤 왼쪽 위 안내의 'Claude 앱에 반영'을 누르면 끝납니다. 앱 플러그인은 계정에 연결되어 있어, 마지막 '추가'는 보안상 사용자가 직접 누릅니다. 앱 플러그인은 계정에 연결되어 있어 마지막 설치 확인은 보안상 Claude 앱에서 합니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
+                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 플러그인 화면이 열립니다. 앱 안에서 '추가'를 누르면 바로 내려받아 설치됩니다. 앱 플러그인은 계정에 연결되어 있어 마지막 '추가'는 보안상 사용자가 직접 누릅니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

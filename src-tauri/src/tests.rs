@@ -325,6 +325,17 @@ fn builds_claude_app_links_safely() {
     assert!(url_for("chat", Some("  ")).is_err());
     assert!(url_for("chat", Some(&"가".repeat(8001))).is_err());
     assert!(url_for("other", None).is_err());
+    use crate::claude_app::url_for_with;
+    assert_eq!(
+        url_for_with("add-marketplace", Some("jocoding-ax-partners/axhub"), Some("axhub")).unwrap(),
+        "claude://claude.ai/customize/plugins/new?marketplace=jocoding-ax-partners%2Faxhub&plugin=axhub"
+    );
+    assert!(url_for_with("add-marketplace", Some("https://github.com/o/r.git"), None).is_ok());
+    assert!(url_for_with("add-marketplace", Some("../etc"), None).is_err());
+    assert!(url_for_with("add-marketplace", Some("o/r/x"), None).is_err());
+    assert!(url_for_with("add-marketplace", Some("o/r&x=1"), None).is_err());
+    assert!(url_for_with("add-marketplace", Some("o/r"), Some("a/b")).is_err());
+    assert!(url_for_with("add-marketplace", Some("http://evil/x/y"), None).is_err());
 }
 
 #[test]

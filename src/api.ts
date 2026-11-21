@@ -22,8 +22,8 @@ export const api = {
   updateMarketplaces: () => invoke<string>("update_marketplaces"),
   aiStatus: () => invoke<AiStatus>("ai_status"),
   openLogin: () => invoke<void>("open_login"),
-  openInClaudeApp: (kind: "plugin" | "plugins" | "chat", value?: string | null) =>
-    invoke<void>("open_in_claude_app", { kind, value: value ?? null }),
+  openInClaudeApp: (kind: "plugin" | "plugins" | "chat" | "add-marketplace", value?: string | null, plugin?: string | null) =>
+    invoke<void>("open_in_claude_app", { kind, value: value ?? null, plugin: plugin ?? null }),
   getGuide: (id: string, version: string | null) => invoke<Guide | null>("get_guide", { id, version }),
   generateGuide: (args: { id: string; surface?: Surface | null; version?: string | null; name?: string | null; description?: string | null }) =>
     invoke<Guide>("generate_guide", {

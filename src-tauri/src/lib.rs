@@ -280,8 +280,8 @@ async fn ai_status() -> Result<AiStatus, String> {
 }
 
 #[tauri::command]
-fn open_in_claude_app(kind: String, value: Option<String>) -> Result<(), String> {
-    claude_app::open(&kind, value.as_deref())
+fn open_in_claude_app(kind: String, value: Option<String>, plugin: Option<String>) -> Result<(), String> {
+    claude_app::open(&kind, value.as_deref(), plugin.as_deref())
 }
 
 #[tauri::command]

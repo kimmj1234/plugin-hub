@@ -27,6 +27,29 @@
 
 ---
 
+## 2026-11-21 (9)
+
+### 한 일
+- 전체 점검: 타입 검사, 프론트 빌드, Rust 테스트 8개, 실제 환경 읽기 전용 점검(real_scan), 임시 폴더에서 실제 CLI 설치·삭제 통합 테스트(e2e) 모두 통과. 점검 전후 실제 `settings.json`·`installed_plugins.json` 해시가 같음을 확인. npm audit 0건, cargo audit 취약점 0건(리눅스용 의존성 경고만 있음). 브라우저 미리보기로 7개 화면과 주요 버튼을 눌러 보고 콘솔 오류가 없음을 확인. `npm run tauri dev`로 실제 데스크톱 앱이 오류 없이 뜨는 것까지 확인.
+- 안 쓰는 상태 값(`copied`)을 정리.
+- Claude 앱 플러그인 설치를 웹 없이 Claude 앱 안에서 하도록 변경. 공식 디렉터리 플러그인은 `claude://claude.ai/customize/plugins`를 열고 이름을 클립보드에 복사한다. GitHub 마켓플레이스 플러그인은 `claude://claude.ai/customize/plugins/new?marketplace=owner/repo&plugin=이름`으로 Claude 앱의 "마켓플레이스 추가" 창을 연다. "Claude 앱에 반영" 버튼은 없앴다.
+- `open_in_claude_app`에 `add-marketplace` 종류와 `plugin` 인자를 추가하고, 저장소 형식(owner/repo 또는 https 주소)을 검사하는 테스트를 추가.
+
+### 막힌 점과 해결
+- 문제: 사용자가 웹을 열지 말고 Claude 앱 안에서 다운로드까지 끝나게 해 달라고 함.
+- 원인: Claude 앱의 `claude://` 처리기는 플러그인 화면 주소의 검색어를 지운다. 설치 전 공식 플러그인의 상세 화면 주소(UUID)는 PC에 없다(Claude 앱 데이터 폴더 전체를 검색해 확인).
+- 시도: Claude 앱 내부 코드(app.asar)에서 처리기를 읽었다. `customize/plugins/new`만 `marketplace`·`plugin` 값을 넘겨 준다. 실제로 열어 보니 "마켓플레이스 추가" 창에 값이 채워져 있었다(Claude 앱 창만 캡처해 확인하고 캡처는 지움). `customize/plugins/이름@anthropic-plugin-directory`와 `plugins?q=`는 원하는 화면으로 가지 않았다.
+- 결과: 공식 플러그인은 앱 플러그인 화면 + 이름 복사, GitHub 마켓플레이스 플러그인은 채워진 추가 창. 앱 화면이 열린 상태에서 추가하면 앱이 바로 동기화하므로 "반영" 단계가 사라졌다.
+- 확인 못 한 것: 테스트 중 화면이 잠겨 앱 안 검색창 붙여 넣기와 "추가" 클릭 결과는 화면으로 보지 못했다. 이 세션에는 마우스·키보드 조작 도구가 없다.
+
+### AI에게 맡긴 것과 내가 판단한 것
+- AI에게 맡긴 것: 전체 점검, Claude 앱 내부 주소 조사, 설치 흐름 변경.
+- 내가 판단/결정한 것: 브라우저를 오가는 흐름은 쓰지 않고 Claude 앱 안에서 끝내기로 결정.
+- AI 제안을 거절하거나 바꾼 것: 웹 검색 → 추가 → 앱 반영 3단계 안내를 거절.
+
+### 배운 점
+- 다른 앱의 딥링크는 문서가 없어도, 그 앱의 주소 처리 코드를 읽으면 어떤 값이 통과하는지 정확히 알 수 있다.
+
 ## 2026-11-21 (8)
 
 ### 한 일
