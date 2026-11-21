@@ -54,6 +54,7 @@ export interface Plugin {
   repository: string | null;
   components: Components;
   toggleable: boolean;
+  appRef: string | null;
 }
 
 export interface Marketplace {

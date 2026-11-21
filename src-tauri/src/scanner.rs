@@ -344,6 +344,7 @@ fn build_plugin(
         repository: repo_of(&man.value),
         components: comps,
         toggleable: surface == "cli",
+        app_ref: None,
     }
 }
 
@@ -445,7 +446,14 @@ fn desktop_plugins() -> Vec<Plugin> {
                 }
                 let enabled = e.get("enabled").and_then(|x| x.as_bool()).unwrap_or(false);
                 let path = str_of(e, "installPath");
-                out.push(build_plugin(&id, "desktop", enabled, Some(e), path));
+                let app_ref = path
+                    .as_deref()
+                    .and_then(|p| Path::new(p).file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+                    .filter(|n| n.starts_with("plugin_") && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+                let mut p = build_plugin(&id, "desktop", enabled, Some(e), path);
+                p.app_ref = app_ref;
+                out.push(p);
             }
         }
     }

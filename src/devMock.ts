@@ -32,6 +32,7 @@ function plugin(p: Partial<Plugin> & Pick<Plugin, "id">): Plugin {
     repository: null,
     components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [] },
     toggleable: true,
+    appRef: null,
     ...p,
   };
 }
@@ -84,9 +85,9 @@ const plugins: Plugin[] = [
   }),
   plugin({ id: "data@knowledge-work-plugins", enabled: false, version: "1.1.0", description: "Write SQL, explore datasets, and generate insights faster." }),
   plugin({ id: "old-linter@legacy-market", installed: false, installPath: null, pathExists: false, manifestOk: false, version: null }),
-  plugin({ id: "design@knowledge-work-plugins", surface: "desktop", toggleable: false, scope: null, version: "1.2.0", description: "Accelerate design workflows — critique, design system management, UX writing." }),
-  plugin({ id: "engineering@knowledge-work-plugins", surface: "desktop", toggleable: false, scope: null, version: "1.2.0", description: "Streamline engineering workflows — standups, code review, architecture decisions." }),
-  plugin({ id: "frontend-design@anthropic-plugin-directory", surface: "desktop", toggleable: false, scope: null, version: "1.1.1", description: "Frontend design skill for UI/UX implementation" }),
+  plugin({ id: "design@knowledge-work-plugins", surface: "desktop", appRef: "plugin_01MockAppRef", toggleable: false, scope: null, version: "1.2.0", description: "Accelerate design workflows — critique, design system management, UX writing." }),
+  plugin({ id: "engineering@knowledge-work-plugins", surface: "desktop", appRef: "plugin_01MockAppRef", toggleable: false, scope: null, version: "1.2.0", description: "Streamline engineering workflows — standups, code review, architecture decisions." }),
+  plugin({ id: "frontend-design@anthropic-plugin-directory", surface: "desktop", appRef: "plugin_01MockAppRef", toggleable: false, scope: null, version: "1.1.1", description: "Frontend design skill for UI/UX implementation" }),
 ];
 
 function diagnostics(): Diagnostic[] {

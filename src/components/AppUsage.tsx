@@ -17,7 +17,7 @@ function defaultPrompt(p: Plugin, it: Item): string {
 }
 
 export function AppUsage({ plugin }: { plugin: Plugin }) {
-  const { toast, catalog } = useHub();
+  const { toast } = useHub();
   const p = plugin;
   const items: Item[] = useMemo(
     () => [
@@ -29,7 +29,7 @@ export function AppUsage({ plugin }: { plugin: Plugin }) {
   const [sel, setSel] = useState(0);
   const current = items[sel] ?? null;
   const [text, setText] = useState(() => (current ? defaultPrompt(p, current) : `${p.displayName} 플러그인으로 도와줘.\n\n하고 싶은 일: `));
-  const ref = appPluginRef(p, catalog);
+  const ref = appPluginRef(p);
   const ko = koDescription(p.id);
 
   const pick = (i: number) => {

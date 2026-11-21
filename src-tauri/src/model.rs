@@ -64,6 +64,7 @@ pub struct Plugin {
     pub repository: Option<String>,
     pub components: Components,
     pub toggleable: bool,
+    pub app_ref: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

@@ -142,8 +142,8 @@ fn real_scan() {
     println!("env: {:#?}", s.env);
     for p in &s.plugins {
         println!(
-            "[{}] {} enabled={} skills={} hooks={:?}",
-            p.surface, p.id, p.enabled, p.components.skills.len(), p.components.hooks
+            "[{}] {} ({}) enabled={} skills={} hooks={:?} app_ref={:?}",
+            p.surface, p.id, p.display_name, p.enabled, p.components.skills.len(), p.components.hooks, p.app_ref
         );
     }
     for d in &s.diagnostics {
