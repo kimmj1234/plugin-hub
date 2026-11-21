@@ -186,11 +186,17 @@ fn save_prefs(app: AppHandle, prefs: model::Prefs) -> Result<(), String> {
     if !matches!(prefs.default_install_scope.as_str(), "user" | "project" | "local") {
         return Err("알 수 없는 범위입니다".into());
     }
+    if !matches!(prefs.app_update.as_str(), "auto" | "notify" | "off") {
+        return Err("알 수 없는 업데이트 방식입니다".into());
+    }
     let dir = data_dir(&app)?;
     let mut st = store::load(&dir);
     let login_changed = st.prefs.launch_at_login != prefs.launch_at_login;
     st.prefs = prefs;
     store::save(&dir, &st)?;
+    if consented(&st.prefs) {
+        start_watcher_once(&app, &st.projects);
+    }
     if login_changed {
         apply_launch_at_login(&app, st.prefs.launch_at_login)?;
     }
@@ -210,6 +216,50 @@ fn apply_launch_at_login(app: &AppHandle, on: bool) -> Result<(), String> {
 }
 
 const HIDDEN_ARG: &str = "--hidden";
+/// 개인정보 안내문 버전 (프론트엔드 hub.tsx의 PRIVACY_VERSION과 같아야 한다)
+const PRIVACY_VERSION: u32 = 1;
+static WATCHER_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn consented(prefs: &model::Prefs) -> bool {
+    prefs.onboarding_done && prefs.privacy_ack >= PRIVACY_VERSION
+}
+
+/// 파일 감시는 사용자가 개인정보 안내에 동의한 뒤에만 시작한다 (한 번만)
+fn start_watcher_once(app: &AppHandle, projects: &[model::ProjectFolder]) {
+    use std::sync::atomic::Ordering;
+    if !WATCHER_STARTED.swap(true, Ordering::SeqCst) {
+        watcher::start(app.clone(), projects.iter().map(|p| PathBuf::from(&p.path)).collect());
+    }
+}
+
+/// 트레이(메뉴 막대) 아이콘: 창을 닫아도 뒤에서 도는 앱이라, 다시 열기와 완전 종료를 여기서 한다.
+/// Windows에는 ⌘Q가 없어서 이 메뉴가 유일한 종료 방법이다.
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    let open = MenuItem::with_id(app, "open", "Plugin Hub 열기", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Plugin Hub 종료", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("Plugin Hub")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, e| match e.id.as_ref() {
+            "open" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, ev| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
 
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -307,7 +357,11 @@ async fn update_marketplaces(state: State<'_, AppState>) -> Result<String, Strin
 }
 
 #[tauri::command]
-async fn get_usage(names: Vec<String>, days: u32) -> Result<usage::UsageReport, String> {
+async fn get_usage(app: AppHandle, names: Vec<String>, days: u32) -> Result<usage::UsageReport, String> {
+    // 대화 기록은 사용자가 동의했을 때만 읽는다
+    if !hub_state(&app)?.prefs.usage_consent {
+        return Err("사용 분석에 동의하지 않았습니다. 설정에서 켤 수 있습니다.".into());
+    }
     if names.len() > 500 || names.iter().any(|n| n.is_empty() || n.len() > 128) {
         return Err("잘못된 플러그인 이름입니다".into());
     }
@@ -323,6 +377,54 @@ async fn ai_status() -> Result<AiStatus, String> {
 #[tauri::command]
 async fn install_in_claude_app(name: String, repo: Option<String>) -> Result<String, String> {
     blocking(move || claude_app::auto_install(&name, repo.as_deref())).await
+}
+
+#[tauri::command]
+async fn permissions() -> Result<model::Permissions, String> {
+    blocking(|| {
+        Ok(model::Permissions {
+            os: std::env::consts::OS.into(),
+            #[cfg(target_os = "macos")]
+            accessibility: Some(mac_ax::trusted(false)),
+            #[cfg(not(target_os = "macos"))]
+            accessibility: None,
+            cli: cli::active_cli(),
+            desktop_installed: paths::desktop_installed(),
+            claude_home_exists: paths::claude_home().exists(),
+        })
+    })
+    .await
+}
+
+/// macOS 손쉬운 사용 권한을 요청한다. 시스템이 Plugin Hub를 목록에 올리고 허용 창을 띄운다.
+/// 권한은 앱이 스스로 켤 수 없어서(운영체제 보안 정책) 사용자가 설정에서 직접 켜야 한다.
+#[tauri::command]
+fn request_accessibility() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if mac_ax::trusted(true) {
+            return Ok(true);
+        }
+        let _ = claude_app::open_accessibility_settings();
+        Ok(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(true)
+    }
+}
+
+/// 앱에 포함된 오픈소스 라이선스 전문(THIRD_PARTY_LICENSES.txt)을 기본 텍스트 편집기로 연다
+#[tauri::command]
+fn open_licenses(app: AppHandle) -> Result<(), String> {
+    let p = app
+        .path()
+        .resolve("THIRD_PARTY_LICENSES.txt", tauri::path::BaseDirectory::Resource)
+        .map_err(|e| e.to_string())?;
+    if !p.is_file() {
+        return Err("라이선스 파일을 찾지 못했습니다.".into());
+    }
+    tauri_plugin_opener::open_path(p, None::<&str>).map_err(|e| format!("파일을 열지 못했습니다: {e}"))
 }
 
 #[tauri::command]
@@ -413,6 +515,10 @@ async fn read_readme(id: String, surface: String) -> Result<Option<String>, Stri
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 이미 실행 중이면 새로 띄우지 않고 기존 창을 보여 준다 (창을 닫아도 뒤에서 도는 앱이라 Windows에서 특히 필요)
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -429,11 +535,16 @@ pub fn run() {
             if !std::env::args().any(|a| a == HIDDEN_ARG) {
                 show_main(app.handle());
             }
-            watcher::start(app.handle().clone(), state.projects.iter().map(|p| PathBuf::from(&p.path)).collect());
+            if consented(&state.prefs) {
+                start_watcher_once(app.handle(), &state.projects);
+            }
+            if let Err(e) = build_tray(app) {
+                eprintln!("[tray] {e}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 창을 닫아도 앱은 계속 실행해 감시·자동 업데이트를 이어 간다. 완전히 끄려면 ⌘Q.
+            // 창을 닫아도 앱은 계속 실행해 감시·자동 업데이트를 이어 간다. 완전히 끄려면 트레이 메뉴의 종료(macOS는 ⌘Q도 가능).
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     api.prevent_close();
@@ -466,7 +577,10 @@ pub fn run() {
             remove_project,
             suggest_projects,
             set_folder_enabled,
-            get_usage
+            get_usage,
+            permissions,
+            request_accessibility,
+            open_licenses
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

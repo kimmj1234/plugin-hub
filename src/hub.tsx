@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
-import type { Catalog, Diagnostic, Group, InstallScope, Plugin, PluginUsage, Prefs, ProjectFolder, Snapshot } from "./types";
+import type { Catalog, Diagnostic, Group, InstallScope, Permissions, Plugin, PluginUsage, Prefs, ProjectFolder, Snapshot } from "./types";
 
 export interface Toast {
   id: number;
@@ -36,6 +36,9 @@ interface HubCtx {
   addProject: (path: string) => Promise<boolean>;
   removeProject: (path: string) => Promise<void>;
   setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
+  prefsLoaded: boolean;
+  perm: Permissions | null;
+  refreshPerm: () => Promise<Permissions | null>;
   usage: Record<string, PluginUsage> | null;
   usageDays: number;
   usageSessions: number;
@@ -43,11 +46,13 @@ interface HubCtx {
 }
 
 export const USAGE_DAYS = 30;
+/// 개인정보 안내문 버전. 안내 내용이 바뀌면 올려서 다시 동의를 받는다.
+export const PRIVACY_VERSION = 1;
 
 const CONFIRM_MS = 3000;
 const INSTALLING_RECHECK_MS = 5000;
 
-const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false };
+const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false, onboardingDone: false, privacyAck: 0, usageConsent: false, appUpdate: "auto" };
 
 
 
@@ -78,6 +83,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const catalogBusy = useRef(false);
   const [projects, setProjects] = useState<ProjectFolder[]>([]);
   const [prefs, setPrefsState] = useState<Prefs>(DEFAULT_PREFS);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [perm, setPerm] = useState<Permissions | null>(null);
+  // 개인정보 안내에 동의하기 전에는 파일 검사·CLI 실행·네트워크 확인을 하나도 하지 않는다.
+  const consented = prefsLoaded && prefs.onboardingDone && prefs.privacyAck >= PRIVACY_VERSION;
   const toastId = useRef(0);
   const scanSeq = useRef(0);
   const catalogAgain = useRef(false);
@@ -142,15 +151,20 @@ export function HubProvider({ children }: { children: ReactNode }) {
   refreshRef.current = refresh;
 
   useEffect(() => {
-    refresh();
     api
       .getState()
       .then((s) => {
         setGroupsState(s.groups);
         setProjects(s.projects);
         setPrefsState(s.prefs);
+        setPrefsLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => setPrefsLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!consented) return;
+    refresh();
     const un = listen("hub://changed", () => refresh());
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
@@ -158,7 +172,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       un.then((f) => f());
       window.removeEventListener("focus", onFocus);
     };
-  }, [refresh]);
+  }, [refresh, consented]);
 
   const withBusy = useCallback(
     async <T,>(key: string, label: string, fn: () => Promise<T>): Promise<T | undefined> => {
@@ -310,18 +324,19 @@ export function HubProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (!consented) return;
     refreshCatalog(false);
     const un = listen("hub://catalog-changed", () => refreshCatalog(false));
     return () => {
       un.then((f) => f());
     };
-  }, [refreshCatalog]);
+  }, [refreshCatalog, consented]);
 
   useEffect(() => {
-    if (!prefs.remoteRefreshMinutes) return;
+    if (!consented || !prefs.remoteRefreshMinutes) return;
     const timer = setInterval(() => refreshCatalog(true), prefs.remoteRefreshMinutes * 60 * 1000);
     return () => clearInterval(timer);
-  }, [refreshCatalog, prefs.remoteRefreshMinutes]);
+  }, [refreshCatalog, prefs.remoteRefreshMinutes, consented]);
 
   // 자동 업데이트: 새 버전이 보이면 하나씩 업데이트한다. 같은 버전은 한 번만 시도해 실패가 반복되지 않게 한다.
   const autoTried = useRef<Set<string>>(new Set());
@@ -350,18 +365,21 @@ export function HubProvider({ children }: { children: ReactNode }) {
   // 자동 업데이트를 켜 두었으면 시작할 때 한 번 원본을 확인한다.
   const startupChecked = useRef(false);
   useEffect(() => {
-    if (prefs.autoUpdatePlugins && !startupChecked.current) {
+    if (consented && prefs.autoUpdatePlugins && !startupChecked.current) {
       startupChecked.current = true;
       refreshCatalog(true);
     }
-  }, [prefs.autoUpdatePlugins, refreshCatalog]);
+  }, [prefs.autoUpdatePlugins, refreshCatalog, consented]);
 
   // 사용 분석: 대화 기록에서 최근 30일 동안 플러그인을 몇 번 썼는지 (터미널·Code 탭 플러그인만)
   const [usage, setUsage] = useState<Record<string, PluginUsage> | null>(null);
   const [usageSessions, setUsageSessions] = useState(0);
   const cliNames = snap ? [...new Set(snap.plugins.filter((p) => p.surface === "cli").flatMap((p) => [p.name, p.displayName]))].sort().join("\n") : "";
   const refreshUsage = useCallback(async () => {
-    if (!cliNames) return;
+    if (!consented || !cliNames || !prefs.usageConsent) {
+      setUsage(null);
+      return;
+    }
     try {
       const r = await api.usage(cliNames.split("\n"), USAGE_DAYS);
       setUsage(Object.fromEntries(r.plugins.map((u) => [u.plugin, u])));
@@ -369,12 +387,30 @@ export function HubProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       console.warn("usage", e);
     }
-  }, [cliNames]);
+  }, [cliNames, prefs.usageConsent, consented]);
   useEffect(() => {
     refreshUsage();
     const timer = setInterval(refreshUsage, 10 * 60 * 1000);
     return () => clearInterval(timer);
   }, [refreshUsage]);
+
+  // 권한·준비 상태 (손쉬운 사용, Claude Code 실행 파일 등). 창으로 돌아올 때마다 다시 확인한다.
+  const refreshPerm = useCallback(async () => {
+    try {
+      const p = await api.permissions();
+      setPerm(p);
+      return p;
+    } catch {
+      return null;
+    }
+  }, []);
+  useEffect(() => {
+    if (!consented) return; // 첫 실행 설정 화면은 동의 뒤 단계에서 직접 확인한다
+    refreshPerm();
+    const onFocus = () => refreshPerm();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshPerm, consented]);
 
   const setPrefs = useCallback(
     async (p: Prefs) => {
@@ -444,7 +480,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder, usage, usageDays: USAGE_DAYS, usageSessions, refreshUsage }}
+      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder, prefsLoaded, perm, refreshPerm, usage, usageDays: USAGE_DAYS, usageSessions, refreshUsage }}
     >
       {children}
     </Ctx.Provider>

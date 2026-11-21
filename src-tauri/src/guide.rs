@@ -204,7 +204,30 @@ pub fn open_login_terminal() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        // 새 콘솔 창에서 공식 로그인 명령을 실행한다. 경로는 앱이 찾은 Claude Code 실행 파일만 쓴다.
+        // .exe는 cmd를 거치지 않고 직접 띄워 경로에 &, ^, % 같은 문자가 있어도 해석되지 않게 한다.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        let is_exe = cli.path.to_ascii_lowercase().ends_with(".exe");
+        let mut cmd = if is_exe {
+            let mut c = std::process::Command::new(&cli.path);
+            c.args(["auth", "login"]);
+            c
+        } else {
+            // npm 설치의 claude.cmd는 cmd로만 실행할 수 있다. 위험한 문자가 있으면 거부한다.
+            if cli.path.chars().any(|ch| matches!(ch, '&' | '|' | '^' | '%' | '<' | '>' | '"' | '(' | ')')) {
+                return Err("Claude Code 경로에 특수 문자가 있어 로그인 창을 열지 않았습니다. 터미널에서 `claude auth login`을 실행하세요.".into());
+            }
+            let mut c = std::process::Command::new("cmd");
+            c.arg("/K").arg(&cli.path).args(["auth", "login"]);
+            c
+        };
+        cmd.creation_flags(CREATE_NEW_CONSOLE).spawn().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = cli;
         Err("이 OS에서는 아직 지원하지 않습니다. 터미널에서 `claude auth login`을 실행하세요.".into())

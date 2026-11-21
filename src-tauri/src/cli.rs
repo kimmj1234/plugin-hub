@@ -114,6 +114,7 @@ fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], timeout: Duration) -> Resul
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn run_raw_for_test(bin: &Path, args: &[&str], timeout: Duration) -> Result<CliResult, String> {
     run_raw(bin, args, timeout)
 }

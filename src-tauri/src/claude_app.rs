@@ -75,11 +75,13 @@ pub fn open(kind: &str, value: Option<&str>, plugin: Option<&str>) -> Result<(),
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("Claude 앱을 열지 못했습니다: {e}"))
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn valid_search_name(name: &str) -> bool {
     let n = name.trim();
     !n.is_empty() && n.chars().count() <= 100 && !n.chars().any(|c| c.is_control())
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn repo_of(url: &str) -> Option<String> {
     let rest = url.strip_prefix("https://github.com/")?;
     let mut it = rest.trim_end_matches('/').trim_end_matches(".git").split('/');

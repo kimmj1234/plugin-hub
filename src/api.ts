@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { AiStatus, Catalog, CliResult, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Snapshot, Surface, UsageReport } from "./types";
+import type { AiStatus, Catalog, CliResult, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Permissions, Snapshot, Surface, UsageReport } from "./types";
 
 export const api = {
   scan: () => invoke<Snapshot>("scan"),
@@ -22,6 +22,9 @@ export const api = {
     invoke<string | null>("read_readme", { id, surface }),
   updateMarketplaces: () => invoke<string>("update_marketplaces"),
   aiStatus: () => invoke<AiStatus>("ai_status"),
+  permissions: () => invoke<Permissions>("permissions"),
+  requestAccessibility: () => invoke<boolean>("request_accessibility"),
+  openLicenses: () => invoke<void>("open_licenses"),
   openLogin: () => invoke<void>("open_login"),
   openInClaudeApp: (kind: "plugin" | "plugins" | "directory" | "chat" | "add-marketplace", value?: string | null, plugin?: string | null) =>
     invoke<void>("open_in_claude_app", { kind, value: value ?? null, plugin: plugin ?? null }),

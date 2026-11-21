@@ -180,6 +180,18 @@ export interface Prefs {
   remoteRefreshMinutes: number;
   autoUpdatePlugins: boolean;
   launchAtLogin: boolean;
+  onboardingDone: boolean;
+  privacyAck: number;
+  usageConsent: boolean;
+  appUpdate: "auto" | "notify" | "off";
+}
+
+export interface Permissions {
+  os: string;
+  accessibility: boolean | null;
+  cli: CliInfo | null;
+  desktopInstalled: boolean;
+  claudeHomeExists: boolean;
 }
 
 export interface HubState {

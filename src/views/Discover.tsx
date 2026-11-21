@@ -7,14 +7,15 @@ import type { AcceptPrompt, CatalogEntry, InstallScope } from "../types";
 import { CATEGORIES, OTHER, POPULARITY_DATE, categorize, categoryById, formatStars, koDescription, stars, topPopular } from "../catalogMeta";
 import { GuidePanel } from "../components/GuidePanel";
 import { usableInApp } from "../claudeApp";
+import { SurfaceLabel } from "../surface";
 
 const PAGE = 60;
 type Sort = "popular" | "new" | "name";
 type Filter = "all" | "fresh" | "installed";
 type Surface = "cli" | "desktop";
-type Pending = { entry: CatalogEntry; search: string; repo: string | null; status: "running" | "added" | "permission" | "error" | "manual"; error?: string };
+type Pending = { entry: CatalogEntry; search: string; repo: string | null; status: "running" | "added" | "permission" | "error" | "manual" | "guided"; error?: string };
 const DIRECTORY = "anthropic-plugin-directory";
-const SURFACE_LABEL: Record<Surface, string> = { cli: "터미널", desktop: "Claude 앱" };
+const SURFACE_LABEL: Record<Surface, string> = { cli: "Claude Code", desktop: "Claude 채팅" };
 
 function loadSurface(): Surface {
   try {
@@ -31,7 +32,7 @@ interface Row extends CatalogEntry {
 }
 
 export function Discover() {
-  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog, prefs, projects, addProject } = useHub();
+  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog, prefs, projects, addProject, perm, refreshPerm } = useHub();
   const [instScope, setInstScope] = useState<InstallScope>("user");
   const [instProject, setInstProject] = useState<string>("");
   const [query, setQuery] = useState("");
@@ -117,6 +118,18 @@ export function Discover() {
       } catch (err) {
         toast("error", errorText(err));
       }
+      return;
+    }
+    // Windows 등 자동 설치를 지원하지 않는 곳: Claude 앱 디렉터리를 열고 무엇을 누를지 안내한다
+    if (perm && perm.os !== "macos") {
+      setPending({ entry: e, search, repo: null, status: "guided" });
+      api.openInClaudeApp("directory").catch((err) => toast("error", errorText(err)));
+      return;
+    }
+    // 손쉬운 사용 권한이 없으면 시도하지 않고 설정 안내부터 보여 준다 (권한 없이는 이 기능을 쓸 수 없음)
+    const p = (await refreshPerm()) ?? perm;
+    if (p && p.accessibility === false) {
+      setPending({ entry: e, search, repo: null, status: "permission" });
       return;
     }
     setPending({ entry: e, search, repo: null, status: "running" });
@@ -234,7 +247,15 @@ export function Discover() {
         ) : busy[e.pluginId] ? (
           <span className="spinner-text">{busy[e.pluginId]}…</span>
         ) : surface === "cli" ? (
-          e.installable && <button onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}>설치</button>
+          e.installable && (
+            <button
+              disabled={!!perm && !perm.cli}
+              title={perm && !perm.cli ? "Claude Code가 필요합니다. 설정 > 권한·준비 상태에서 확인하세요." : undefined}
+              onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}
+            >
+              설치
+            </button>
+          )
         ) : (
           <button onClick={(ev) => { ev.stopPropagation(); installInApp(e); }} title="Claude 앱에 자동으로 설치합니다">앱에 설치</button>
         )}
@@ -251,7 +272,7 @@ export function Discover() {
         <div className="seg surface-seg" role="tablist" aria-label="설치 대상">
           {(["cli", "desktop"] as Surface[]).map((s) => (
             <button key={s} role="tab" aria-selected={surface === s} className={surface === s ? "active" : ""} onClick={() => setSurface(s)}>
-              {s === "cli" ? "터미널·Claude Code" : "Claude 앱"} <span className="count">{installedCount(s)}개 설치</span>
+              <SurfaceLabel s={s} count={installedCount(s)} countSuffix="개 설치" />
             </button>
           ))}
         </div>
@@ -260,7 +281,7 @@ export function Discover() {
             {pendingDone ? (
               <>
                 <strong>✅ {pending.search} 설치 완료</strong>
-                <p className="small">Claude 앱에 설치된 것을 확인했습니다. '내 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다.</p>
+                <p className="small">Claude 앱에 설치된 것을 확인했습니다. '내 플러그인 → Claude 채팅'에서 쓰는 법을 볼 수 있습니다.</p>
                 <button onClick={() => setPending(null)}>닫기</button>
               </>
             ) : (
@@ -281,13 +302,14 @@ export function Discover() {
                   <>
                     <strong>자동 설치에 '손쉬운 사용' 권한이 필요합니다</strong>
                     <ol className="small">
-                      <li>아래 <strong>설정 열기</strong>를 누르면 macOS 설정의 <strong>손쉬운 사용</strong>이 열립니다.</li>
+                      <li>아래 <strong>권한 요청</strong>을 누르면 macOS가 Plugin Hub를 손쉬운 사용 목록에 올리고 설정을 엽니다.</li>
                       <li>목록에서 <strong>Plugin Hub</strong>를 켭니다. (없으면 + 를 눌러 응용 프로그램의 Plugin Hub를 추가)</li>
                       <li>돌아와서 <strong>다시 시도</strong>를 누릅니다.</li>
                     </ol>
                     <p className="muted small">이 권한으로 Plugin Hub는 '설치'를 누른 플러그인을 Claude 앱 디렉터리에서 찾아 추가 버튼을 대신 누릅니다. 그 밖의 앱이나 화면은 조작하지 않습니다.</p>
                     <div className="row">
-                      <button className="primary" onClick={() => api.openAccessibilitySettings().catch((e) => toast("error", errorText(e)))}>설정 열기</button>
+                      <button className="primary" onClick={() => api.requestAccessibility().catch((e) => toast("error", errorText(e)))}>권한 요청</button>
+                      <button onClick={() => api.openAccessibilitySettings().catch((e) => toast("error", errorText(e)))}>설정 열기</button>
                       <button onClick={() => installInApp(pending.entry)}>다시 시도</button>
                       <button className="link" onClick={() => setPending(null)}>취소</button>
                     </div>
@@ -300,6 +322,20 @@ export function Discover() {
                     <p className="muted small">Claude 앱 디렉터리에서 '{pending.search}'를 검색해 직접 추가해도 됩니다.</p>
                     <div className="row">
                       <button className="primary" onClick={() => installInApp(pending.entry)}>다시 시도</button>
+                      <button className="link" onClick={() => setPending(null)}>닫기</button>
+                    </div>
+                  </>
+                )}
+                {pending.status === "guided" && (
+                  <>
+                    <strong>'{pending.search}' Claude 앱에서 추가하기</strong>
+                    <ol className="small">
+                      <li>Claude 앱에 디렉터리가 열렸습니다. 위쪽 검색창에 <strong>{pending.search}</strong>를 입력합니다.</li>
+                      <li>결과에서 <strong>{pending.search}</strong>를 누른 뒤 <strong>추가</strong>를 누릅니다.</li>
+                      <li>추가가 끝나면 여기에 자동으로 "설치 완료"가 표시됩니다.</li>
+                    </ol>
+                    <div className="row">
+                      <button className="primary" onClick={() => installInApp(pending.entry)}>Claude 앱 다시 열기</button>
                       <button className="link" onClick={() => setPending(null)}>닫기</button>
                     </div>
                   </>
@@ -370,7 +406,7 @@ export function Discover() {
         )}
 
         <div className="muted small status-line">
-          {catalog && `${sorted.length.toLocaleString()}개 · ${surface === "cli" ? "터미널·Code 탭에 바로 설치" : "Claude 앱 채팅·Cowork용, '앱에 설치'로 자동 설치"}`}
+          {catalog && `${sorted.length.toLocaleString()}개 · ${surface === "cli" ? "터미널과 Claude 앱 Code 탭에 함께 설치됩니다" : "Claude 앱 채팅·Cowork용 · '앱에 설치'로 자동 설치"}`}
           {catalog && ` · ${new Date(catalog.fetchedAt).toLocaleTimeString()} 갱신 · ${prefs.remoteRefreshMinutes > 0 ? `${prefs.remoteRefreshMinutes >= 60 ? `${prefs.remoteRefreshMinutes / 60}시간` : `${prefs.remoteRefreshMinutes}분`}마다 자동 확인` : "자동 확인 꺼짐"}`}
           {catalog?.origin === "local-cache" && " · CLI가 없어 로컬 캐시를 보여줍니다 (설치 불가)"}
         </div>
@@ -440,7 +476,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "'Claude 앱에 설치'를 누르면 Plugin Hub가 Claude 앱 디렉터리에서 이 플러그인을 찾아 추가하고, Claude 앱이 바로 내려받습니다. 처음 한 번은 macOS '손쉬운 사용' 권한을 허용해야 합니다. 설치 후 '내 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
+                ? "'Claude 앱에 설치'를 누르면 Plugin Hub가 Claude 앱 디렉터리에서 이 플러그인을 찾아 추가하고, Claude 앱이 바로 내려받습니다. 처음 한 번은 macOS '손쉬운 사용' 권한을 허용해야 합니다. 설치 후 '내 플러그인 → Claude 채팅'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

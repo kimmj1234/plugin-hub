@@ -176,13 +176,15 @@ let hub: HubState = {
     { path: "~/dev/shop-web", name: "shop-web" },
     { path: "~/dev/api-server", name: "api-server" },
   ],
-  prefs: { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false },
+  prefs: { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false, onboardingDone: false, privacyAck: 0, usageConsent: false, appUpdate: "auto" },
 };
 
 let groups = { groups: [{ id: "g1", name: "매일 쓰는 것", pluginIds: ["superpowers@anthropic-plugin-directory", "frontend-design@claude-plugins-official"] }, { id: "g2", name: "팀 배포", pluginIds: ["commit-helper@team-tools", "deploy-kit@team-tools"] }] };
 
 const ok = (stdout: string) => ({ ok: true, code: 0, stdout, stderr: "", needsAccept: null });
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+let mockAx = false;
 
 async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unknown> {
   switch (cmd) {
@@ -242,6 +244,17 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
     case "update_marketplaces":
       await wait(500);
       return "updated";
+    case "plugin:updater|check":
+      return null;
+    case "plugin:app|version":
+      return "1.0.0";
+    case "open_licenses":
+      return null;
+    case "permissions":
+      return { os: "macos", accessibility: mockAx, cli: { path: "/usr/local/bin/claude", version: "2.1.325", kind: "terminal" }, desktopInstalled: true, claudeHomeExists: true };
+    case "request_accessibility":
+      mockAx = true;
+      return false;
     case "ai_status":
       return { cliFound: true, loggedIn: true, detail: "로그인됨" };
     case "open_login":

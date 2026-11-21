@@ -8,6 +8,11 @@ fn temp_dir(name: &str) -> PathBuf {
     d
 }
 
+/// 경로를 JSON 문자열로 (Windows 역슬래시도 올바르게 이스케이프)
+fn js(p: &std::path::Path) -> String {
+    serde_json::Value::String(p.display().to_string()).to_string()
+}
+
 fn write(p: PathBuf, s: &str) {
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(p, s).unwrap();
@@ -31,14 +36,14 @@ fn scan_rules_and_toggle_on_fake_home() {
         home.join("plugins/installed_plugins.json"),
         &format!(
             r#"{{"version":2,"plugins":{{
-              "a@mk":[{{"scope":"user","installPath":"{}","version":"1.0.0"}}],
-              "b@mk":[{{"scope":"user","installPath":"{}","version":"1.0.0"}}],
+              "a@mk":[{{"scope":"user","installPath":{},"version":"1.0.0"}}],
+              "b@mk":[{{"scope":"user","installPath":{},"version":"1.0.0"}}],
               "gone@mk":[{{"scope":"user","installPath":"/nonexistent/path","version":"0.1.0"}}],
-              "fd@anthropic-plugin-directory":[{{"scope":"user","installPath":"{}","version":"1.1.1-73c8cf3ea7e2"}}]
+              "fd@anthropic-plugin-directory":[{{"scope":"user","installPath":{},"version":"1.1.1-73c8cf3ea7e2"}}]
             }}}}"#,
-            a.display(),
-            b.display(),
-            b.display()
+            js(&a),
+            js(&b),
+            js(&b)
         ),
     );
     write(
@@ -47,7 +52,7 @@ fn scan_rules_and_toggle_on_fake_home() {
     );
     write(
         home.join("plugins/known_marketplaces.json"),
-        &format!(r#"{{"mk":{{"source":{{"source":"github","repo":"o/mk"}},"installLocation":"{}"}}}}"#, home.join("plugins/marketplaces/mk").display()),
+        &format!(r#"{{"mk":{{"source":{{"source":"github","repo":"o/mk"}},"installLocation":{}}}}}"#, js(&home.join("plugins/marketplaces/mk"))),
     );
     write(
         home.join("plugins/marketplaces/mk/.claude-plugin/marketplace.json"),
@@ -492,6 +497,7 @@ fn install_race_real() {
     assert_eq!(dangling_seen, 0, "설치 도중 빨간 오류가 나오면 안 됨");
 }
 
+#[cfg(unix)]
 #[test]
 fn security_defenses() {
     use std::os::unix::fs::{symlink, PermissionsExt};

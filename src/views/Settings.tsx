@@ -1,6 +1,11 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
 import { useHub } from "../hub";
 import type { InstallScope } from "../types";
+import { PRIVACY_URL } from "./Setup";
+import { AppUpdatePanel } from "../components/AppUpdatePanel";
+
+const REPO_URL = "https://github.com/kimmj1234/plugin-hub";
 
 const SCOPES: { value: InstallScope; label: string; desc: string }[] = [
   { value: "user", label: "PC 전체 (기본값)", desc: "이 PC의 모든 폴더에서 쓰입니다." },
@@ -9,7 +14,7 @@ const SCOPES: { value: InstallScope; label: string; desc: string }[] = [
 ];
 
 export function Settings() {
-  const { prefs, setPrefs, projects, addProject, snap } = useHub();
+  const { prefs, setPrefs, projects, addProject, snap, perm } = useHub();
 
   const pickAndSet = async () => {
     const path = await api.pickFolder();
@@ -67,12 +72,39 @@ export function Settings() {
       </section>
 
       <section className="settings-block">
+        <h2>권한과 준비 상태</h2>
+        <ul className="plain small">
+          <li>Claude Code: {perm?.cli ? "준비됨" : "설정 필요 — 설치·삭제·업데이트를 쓸 수 없습니다"}</li>
+          {perm?.os === "macos" && <li>손쉬운 사용 권한: {perm.accessibility ? "허용됨" : "설정 필요 — Claude 채팅 플러그인 자동 설치를 쓸 수 없습니다"}</li>}
+          <li>Claude 앱: {perm?.desktopInstalled ? "설치됨" : "없음 — Claude 채팅 플러그인을 쓸 수 없습니다"}</li>
+        </ul>
+        <button onClick={() => window.dispatchEvent(new Event("hub:open-setup"))}>권한·설정 점검 열기</button>
+      </section>
+
+      <section className="settings-block">
+        <h2>개인정보</h2>
+        <label className="radio">
+          <input type="checkbox" checked={prefs.usageConsent} onChange={(e) => setPrefs({ ...prefs, usageConsent: e.target.checked })} />
+          <span>
+            <strong>사용 분석</strong>
+            <span className="muted small"> — 이 PC의 Claude Code 대화 기록에서 플러그인 호출 횟수만 셉니다. 대화 내용은 저장하거나 보내지 않습니다. 끄면 기록을 읽지 않습니다.</span>
+          </span>
+        </label>
+        <p className="muted small">
+          Plugin Hub는 사용 통계·광고·추적을 수집하지 않고, 개발자 서버로 아무것도 보내지 않습니다.{" "}
+          <button className="link" onClick={() => openUrl(PRIVACY_URL).catch(() => {})}>개인정보 처리방침</button>
+        </p>
+      </section>
+
+      <AppUpdatePanel />
+
+      <section className="settings-block">
         <h2>계속 관리하기</h2>
         <label className="radio">
           <input type="checkbox" checked={prefs.autoUpdatePlugins} onChange={(e) => setPrefs({ ...prefs, autoUpdatePlugins: e.target.checked })} />
           <span>
             <strong>플러그인 업데이트 자동 설치</strong>
-            <span className="muted small"> — 터미널·Claude Code 플러그인에 새 버전이 나오면 확인 없이 바로 업데이트합니다. 새 세션부터 적용됩니다.</span>
+            <span className="muted small"> — Claude Code(터미널·Code 탭) 플러그인에 새 버전이 나오면 확인 없이 바로 업데이트합니다. 새 세션부터 적용됩니다.</span>
           </span>
         </label>
         <label className="radio">
@@ -82,7 +114,7 @@ export function Settings() {
             <span className="muted small"> — Mac을 켜면 창 없이 뒤에서 실행되어 새 버전 확인과 경고 감지를 이어 갑니다.</span>
           </span>
         </label>
-        <p className="muted small">창을 닫아도 앱은 계속 실행됩니다. Dock 아이콘을 누르면 다시 열리고, 완전히 끄려면 ⌘Q를 누르세요.</p>
+        <p className="muted small">창을 닫아도 앱은 계속 실행됩니다. 트레이(macOS는 메뉴 막대) 아이콘이나 앱 아이콘을 누르면 다시 열리고, 완전히 끄려면 트레이 메뉴의 "Plugin Hub 종료"를 누르세요(macOS는 ⌘Q도 가능).</p>
       </section>
 
       <section className="settings-block">
@@ -105,6 +137,18 @@ export function Settings() {
           {projects.map((p) => <li key={p.path}>📁 {p.name} <span className="muted mono">{p.path}</span></li>)}
           {projects.length === 0 && <li className="muted">아직 없습니다.</li>}
         </ul>
+      </section>
+      <section className="settings-block">
+        <h2>정보</h2>
+        <p className="small">
+          Plugin Hub는 MIT 라이선스로 공개된 개인 오픈소스 프로젝트이며 Anthropic과 관계가 없습니다. Claude와 Claude Code는 Anthropic의 상표입니다.
+        </p>
+        <div className="row">
+          <button className="link" onClick={() => openUrl(REPO_URL).catch(() => {})}>GitHub 저장소</button>
+          <button className="link" onClick={() => openUrl(`${REPO_URL}/blob/main/LICENSE`).catch(() => {})}>라이선스</button>
+          <button className="link" onClick={() => api.openLicenses().catch(() => openUrl(`${REPO_URL}/blob/main/THIRD_PARTY_LICENSES.txt`).catch(() => {}))}>오픈소스 라이선스</button>
+          <button className="link" onClick={() => openUrl(`${REPO_URL}/blob/main/SECURITY.md`).catch(() => {})}>보안 문제 신고</button>
+        </div>
       </section>
     </div>
   );

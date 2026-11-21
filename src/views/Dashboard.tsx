@@ -4,11 +4,12 @@ import { Toggle } from "../components/Toggle";
 import { koFor } from "../catalogMeta";
 import { alwaysOnTokens, formatTokens, recentlyInstalled, usageOf, NEW_INSTALL_DAYS } from "../cost";
 import type { Plugin } from "../types";
+import { SURFACE } from "../surface";
 
 const BAR_COLORS = ["#4f46e5", "#7c7ff2", "#f59e0b", "#10b981", "#ec4899", "#0ea5e9"];
 
 function Diet({ go }: { go: (v: "installed") => void }) {
-  const { snap, usage, usageDays, usageSessions, toggle, toggleMany } = useHub();
+  const { snap, usage, usageDays, usageSessions, toggle, toggleMany, prefs, setPrefs } = useHub();
   if (!snap) return null;
   const on = snap.plugins.filter((p) => p.surface === "cli" && p.enabled && p.installed);
   const costs = on.map((p) => ({ p, t: alwaysOnTokens(p) })).sort((a, b) => b.t - a.t);
@@ -55,7 +56,15 @@ function Diet({ go }: { go: (v: "installed") => void }) {
       )}
 
       <div className="diet-unused">
-        {!usage ? (
+        {!prefs.usageConsent ? (
+          <div className="diet-unused-head">
+            <div>
+              <strong>어떤 플러그인을 안 쓰는지 알고 싶다면</strong>
+              <div className="muted small">사용 분석을 켜면 이 PC의 Claude Code 대화 기록에서 플러그인 호출 횟수만 세어 끌 만한 플러그인을 알려 줍니다. 대화 내용은 저장하거나 보내지 않습니다.</div>
+            </div>
+            <button onClick={() => setPrefs({ ...prefs, usageConsent: true })}>사용 분석 켜기</button>
+          </div>
+        ) : !usage ? (
           <p className="muted small">최근 {usageDays}일 사용 기록을 분석하는 중…</p>
         ) : unused.length === 0 ? (
           <p className="small">
@@ -92,9 +101,9 @@ function Diet({ go }: { go: (v: "installed") => void }) {
             </ul>
           </>
         )}
-        <p className="muted tiny">
-          이 Mac의 Claude Code 대화 기록 {usageSessions}개에서 스킬·명령·에이전트·MCP 호출만 셉니다. 대화 내용은 저장하거나 보내지 않습니다. Claude 앱 채팅에서 쓴 기록은 포함되지 않습니다.
-        </p>
+        {prefs.usageConsent && <p className="muted tiny">
+          이 PC의 Claude Code 대화 기록 {usageSessions}개에서 스킬·명령·에이전트·MCP 호출만 셉니다. 대화 내용은 저장하거나 보내지 않습니다. Claude 앱 채팅에서 쓴 기록은 포함되지 않습니다.
+        </p>}
       </div>
     </section>
   );
@@ -157,7 +166,7 @@ export function Dashboard({ go }: { go: (v: HomeTarget) => void }) {
       <h2>이 Mac의 Claude</h2>
       <div className="cards">
         <div className="card">
-          <div className="card-label">터미널 · Claude Code</div>
+          <div className="card-label" title={SURFACE.cli.hint}>Claude Code · {SURFACE.cli.where}</div>
           {env.terminalCli ? (
             <div className="card-value ok">설치됨 {env.terminalCli.version && `v${env.terminalCli.version}`}</div>
           ) : (
@@ -173,7 +182,7 @@ export function Dashboard({ go }: { go: (v: HomeTarget) => void }) {
           </div>
         </div>
         <div className="card">
-          <div className="card-label">Claude 앱</div>
+          <div className="card-label" title={SURFACE.desktop.hint}>Claude 채팅 · {SURFACE.desktop.where}</div>
           {env.desktopInstalled ? <div className="card-value ok">설치됨</div> : <div className="card-value dim">설치되지 않음</div>}
           <div className="card-foot">
             계정 플러그인 {desk.length}개 · 켜짐 {desk.filter((p) => p.enabled).length}개
@@ -188,9 +197,11 @@ export function Dashboard({ go }: { go: (v: HomeTarget) => void }) {
 
       <details className="note">
         <summary>
-          <strong>터미널 플러그인과 Claude 앱 플러그인은 뭐가 다른가요?</strong>
+          <strong>Claude Code 플러그인과 Claude 채팅 플러그인은 뭐가 다른가요?</strong>
         </summary>
-        터미널과 Claude 앱의 Code 탭은 같은 <code className="mono">{env.claudeHome}</code> 설정을 함께 씁니다. Claude 앱의 채팅·Cowork 플러그인은 계정에 동기화되어 따로 관리됩니다.
+        <strong>Claude Code</strong>: 터미널의 Claude Code와 Claude 앱의 Code 탭은 같은 <code className="mono">{env.claudeHome}</code> 폴더를 함께 씁니다. 한쪽에 설치하면 양쪽에서 쓰입니다.
+        <br />
+        <strong>Claude 채팅</strong>: Claude 앱의 채팅·Cowork 플러그인은 Claude 계정에 저장되어 기기 사이에 동기화됩니다. 같은 이름이어도 Claude Code 쪽과는 따로 설치됩니다.
       </details>
     </div>
   );

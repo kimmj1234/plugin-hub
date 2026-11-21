@@ -182,7 +182,13 @@ pub fn kill_tree(pid: u32) {
     #[cfg(unix)]
     let _ = std::process::Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
     #[cfg(windows)]
-    let _ = std::process::Command::new("taskkill").args(["/T", "/F", "/PID", &pid.to_string()]).status();
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW: 콘솔 창이 깜빡이지 않게
+            .status();
+    }
 }
 
 pub fn is_semver(v: &str) -> bool {

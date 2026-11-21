@@ -335,3 +335,41 @@ details.fold > summary { cursor: pointer; font-size: 13px; padding: 6px 0; }
 .filter-more { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .active-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
 .fresh-link { display: block; margin: 0 0 6px; font-size: 12px; }
+
+/* 플러그인 사용처 구분 (Claude Code / Claude 채팅) */
+.surface-label { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.surface-title { font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+.surface-where { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.tabs button, .surface-seg button { padding-top: 6px; padding-bottom: 6px; }
+
+/* 첫 실행 설정 */
+.setup { min-height: 100vh; display: grid; place-items: center; padding: 32px 16px; background: var(--bg); overflow: auto; }
+.setup-card { width: min(760px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px 30px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+.setup-head { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+.setup-head h1 { margin: 0 0 6px; font-size: 22px; }
+.setup-head img { border-radius: 9px; }
+.setup-steps { display: flex; gap: 14px; list-style: none; padding: 0; margin: 0; font-size: 12px; color: var(--muted); }
+.setup-steps li.active { color: var(--accent); font-weight: 600; }
+.setup-steps li.done { color: var(--ok); }
+.setup-section h2 { font-size: 16px; margin: 4px 0 10px; }
+.setup-list { padding-left: 18px; margin: 0 0 14px; font-size: 13px; line-height: 1.6; }
+.setup-list li { margin-bottom: 6px; }
+.setup-check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+.setup-check.required { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+.setup-check input { margin-top: 3px; }
+.setup-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
+.setup-nav .primary { min-width: 120px; }
+.setup-rows { list-style: none; padding: 0; margin: 0; }
+.setup-row { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.setup-row:last-child { border-bottom: 0; }
+.setup-state { flex-shrink: 0; width: 70px; text-align: center; font-size: 11px; font-weight: 600; padding: 3px 0; border-radius: 10px; height: fit-content; background: var(--code); color: var(--muted); }
+.setup-state.ok { background: var(--ok-bg); color: var(--ok); }
+.setup-state.need { background: var(--warn-bg); color: var(--bad); }
+.setup-body { flex: 1; }
+.setup-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+.setup-radio { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.setup-radio .radio { margin-top: 6px; }
+
+/* 앱 업데이트 */
+.update-pill { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; margin-bottom: 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); font-size: 12px; }
+.update-notes { white-space: pre-wrap; max-height: 140px; overflow: auto; }

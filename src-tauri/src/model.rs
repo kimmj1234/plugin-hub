@@ -250,6 +250,33 @@ pub struct Prefs {
     pub auto_update_plugins: bool,
     #[serde(default)]
     pub launch_at_login: bool,
+    /// 첫 실행 설정을 마쳤는가
+    #[serde(default)]
+    pub onboarding_done: bool,
+    /// 개인정보 안내에 동의한 안내문 버전 (안내문이 바뀌면 다시 동의를 받는다)
+    #[serde(default)]
+    pub privacy_ack: u32,
+    /// 대화 기록을 읽는 사용 분석에 동의했는가 (기본 꺼짐)
+    #[serde(default)]
+    pub usage_consent: bool,
+    /// 앱 업데이트: "auto"(받아서 설치), "notify"(알림만), "off"
+    #[serde(default = "default_app_update")]
+    pub app_update: String,
+}
+
+fn default_app_update() -> String {
+    "auto".into()
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Permissions {
+    pub os: String,
+    /// macOS 손쉬운 사용 권한. macOS가 아니면 None (필요 없음)
+    pub accessibility: Option<bool>,
+    pub cli: Option<CliInfo>,
+    pub desktop_installed: bool,
+    pub claude_home_exists: bool,
 }
 
 impl Default for Prefs {
@@ -260,6 +287,10 @@ impl Default for Prefs {
             remote_refresh_minutes: default_refresh(),
             auto_update_plugins: false,
             launch_at_login: false,
+            onboarding_done: false,
+            privacy_ack: 0,
+            usage_consent: false,
+            app_update: default_app_update(),
         }
     }
 }

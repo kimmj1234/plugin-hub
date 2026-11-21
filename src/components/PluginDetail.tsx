@@ -12,6 +12,7 @@ import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
 import { ScopeEditor } from "./ScopeEditor";
 import { AppUsage } from "./AppUsage";
 import { alwaysOnTokens, formatTokens, recentlyInstalled, usageLabel, usageOf } from "../cost";
+import { SURFACE } from "../surface";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const { snap, toggle, uninstall, update, busy, groups, setGroups, toast, usage, usageDays } = useHub();
@@ -66,7 +67,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
       {p.description && <p className={ko ? "muted small" : "desc"}>{p.description}</p>}
 
       <div className="meta">
-        <span className={`badge ${p.surface}`}>{p.surface === "cli" ? "터미널·Claude Code" : "Claude 앱"}</span>
+        <span className={`badge ${p.surface}`} title={SURFACE[p.surface].hint}>{SURFACE[p.surface].title} · {SURFACE[p.surface].where}</span>
         {p.version && <span className="badge">v{p.version}</span>}
         {hasUpdate && <span className="badge warn">새 버전 v{p.latestVersion}</span>}
         {p.scope && <span className="badge">설치 범위: {p.scope === "user" ? "PC 전체" : p.scope === "local" ? "폴더·나만" : "폴더·팀 공유"}</span>}
@@ -80,7 +81,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
 
       {!p.toggleable && (
         <p className="note">
-          Claude 앱 플러그인은 계정과 동기화되어 Claude 앱이 관리합니다. 켜고 끄기·삭제는 아래 "Claude 앱에서 이 플러그인 열기"로 앱의 해당 화면을 바로 열어 하면 되고, 바꾼 내용은 이 화면에 바로 반영됩니다.
+          Claude 채팅 플러그인은 계정과 동기화되어 Claude 앱이 관리합니다. 켜고 끄기·삭제는 아래 "Claude 앱에서 이 플러그인 열기"로 앱의 해당 화면을 바로 열어 하면 되고, 바꾼 내용은 이 화면에 바로 반영됩니다.
         </p>
       )}
 

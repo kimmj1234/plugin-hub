@@ -5,6 +5,7 @@ import { PluginDetail } from "../components/PluginDetail";
 import type { Plugin, Surface } from "../types";
 import { koFor } from "../catalogMeta";
 import { alwaysOnTokens, formatTokens, recentlyInstalled, usageLabel, usageOf } from "../cost";
+import { SurfaceLabel } from "../surface";
 
 const ALL = "__all";
 const UNGROUPED = "__none";
@@ -58,10 +59,10 @@ export function Installed() {
       <div className="pane list-pane">
         <div className="tabs">
           <button className={surface === "cli" ? "active" : ""} onClick={() => { setSurface("cli"); setSelected(null); }}>
-            터미널·Claude Code <span className="count">{snap.plugins.filter((p) => p.surface === "cli").length}</span>
+            <SurfaceLabel s="cli" count={snap.plugins.filter((p) => p.surface === "cli").length} />
           </button>
           <button className={surface === "desktop" ? "active" : ""} onClick={() => { setSurface("desktop"); setSelected(null); }}>
-            Claude 앱 <span className="count">{snap.plugins.filter((p) => p.surface === "desktop").length}</span>
+            <SurfaceLabel s="desktop" count={snap.plugins.filter((p) => p.surface === "desktop").length} />
           </button>
         </div>
 

@@ -5,6 +5,7 @@ import { koFor } from "../catalogMeta";
 import { InvokeBadges, SlashHelp, slashItems, type SlashItem } from "../components/SlashCommands";
 import { CopyButton } from "../components/CopyButton";
 import type { Guide, GuideCommand, Plugin, Surface } from "../types";
+import { SurfaceLabel } from "../surface";
 
 // AI 가이드의 명령 이름("/plugin:cmd <인자>")과 플러그인 구성 요소 이름을 맞춘다.
 function key(s: string): string {
@@ -51,8 +52,8 @@ export function Commands() {
     <div className="split">
       <div className="pane list-pane">
         <div className="tabs">
-          <button className={surface === "cli" ? "active" : ""} onClick={() => { setSurface("cli"); setSelected(null); }}>터미널·Claude Code</button>
-          <button className={surface === "desktop" ? "active" : ""} onClick={() => { setSurface("desktop"); setSelected(null); }}>Claude 앱</button>
+          <button className={surface === "cli" ? "active" : ""} onClick={() => { setSurface("cli"); setSelected(null); }}><SurfaceLabel s="cli" /></button>
+          <button className={surface === "desktop" ? "active" : ""} onClick={() => { setSurface("desktop"); setSelected(null); }}><SurfaceLabel s="desktop" /></button>
         </div>
         <input className="search" placeholder="하고 싶은 일로 찾기 (예: 커밋, 리뷰, 배포)" value={query} onChange={(e) => setQuery(e.target.value)} />
         <ul className="plugin-list">
