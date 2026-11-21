@@ -17,12 +17,12 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.result }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - name: Create draft release
         id: create
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const tag = context.ref.replace('refs/tags/', '');
@@ -54,11 +54,11 @@ jobs:
             args: --bundles nsis
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -78,6 +78,17 @@ jobs:
       - name: Dependency audit (npm, production)
         run: npm audit --omit=dev --audit-level=high
 
+      # 업데이트 안내에 보일 릴리스 노트 (latest.json의 notes)
+      - name: Read release notes
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo "body<<RELEASE_NOTES_EOF"
+            cat RELEASE_NOTES.md
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and upload
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
@@ -86,9 +97,20 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseBody: ${{ steps.notes.outputs.body }}
           args: ${{ matrix.args }}
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      # 내려받은 Mac 앱이 "손상됨"으로 거부되지 않도록, 번들 전체가 서명으로 봉인됐는지 확인한다
+      - name: Verify macOS bundle signature
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/Plugin Hub.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E "Signature|Format"
+          lipo -archs "$APP/Contents/MacOS/plugin-hub"
 
   publish-release:
     needs: [create-release, build]
@@ -97,7 +119,7 @@ jobs:
       contents: write
     steps:
       - name: Publish release
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
         with:
