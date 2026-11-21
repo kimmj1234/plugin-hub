@@ -132,10 +132,13 @@ commands에는 정보에 있는 명령어와 스킬을 모두 넣는다. 정보�
 [플러그인 정보]
 "#;
 
-fn extract_json(text: &str) -> Option<Value> {
+/// 모델 응답에서 JSON 객체 부분만 꺼낸다. 응답은 외부 플러그인 글에 영향을 받을 수 있으므로
+/// 순서가 뒤집힌 괄호("} … {")처럼 이상한 출력이어도 패닉 없이 None을 돌려준다.
+/// (릴리스 빌드는 panic = "abort"라서 패닉 하나가 앱 전체를 끈다)
+pub fn extract_json(text: &str) -> Option<Value> {
     let start = text.find('{')?;
-    let end = text.rfind('}')?;
-    serde_json::from_str(&text[start..=end]).ok()
+    let end = start + text.get(start..)?.rfind('}')?;
+    serde_json::from_str(text.get(start..=end)?).ok()
 }
 
 pub fn generate(dir: &Path, id: &str, version: Option<&str>, context: &str) -> Result<Guide, String> {

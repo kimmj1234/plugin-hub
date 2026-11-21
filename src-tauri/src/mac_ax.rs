@@ -194,29 +194,45 @@ fn link_named(e: &El, name: &str) -> bool {
     l == n || l == format!("{n} 보기") || l == format!("view {n}") || l == format!("{n} view")
 }
 
-/// 검색 결과에서 누를 링크를 고른다. 저장소가 표시된 결과는 저장소까지 같아야 하고,
-/// 저장소 표시가 없으면 같은 이름이 하나뿐일 때만 고른다 (같은 이름의 다른 플러그인을 잘못 누르지 않게).
-fn pick_link(found: Vec<El>, repo: Option<&str>) -> Result<Option<El>, String> {
-    let mut exact = Vec::new();
+/// 검색 결과에서 누를 링크를 고른다. `candidates`는 이름이 맞는 링크마다 그 안의 글자들.
+/// 저장소가 표시된 결과는 저장소까지 같아야 하고, 저장소 표시가 없으면 같은 이름이 하나뿐일 때만 고른다.
+/// (같은 이름의 다른 플러그인을 잘못 누르지 않게)
+pub fn choose_link(candidates: &[Vec<String>], repo: Option<&str>) -> Result<Option<usize>, String> {
     let mut unlabeled = Vec::new();
-    for e in found {
-        let mut texts = vec![];
-        e.texts(0, &mut texts);
+    for (i, texts) in candidates.iter().enumerate() {
         let repos: Vec<&String> = texts.iter().filter(|t| t.contains('/')).collect();
         match repo {
-            Some(r) if repos.iter().any(|t| t.eq_ignore_ascii_case(r)) => exact.push(e),
-            Some(_) if repos.is_empty() => unlabeled.push(e),
-            Some(_) => {}
-            None => unlabeled.push(e),
+            Some(r) if repos.iter().any(|t| t.trim().eq_ignore_ascii_case(r)) => return Ok(Some(i)),
+            Some(_) if !repos.is_empty() => {}
+            _ => unlabeled.push(i),
         }
-    }
-    if let Some(e) = exact.into_iter().next() {
-        return Ok(Some(e));
     }
     match unlabeled.len() {
         0 => Ok(None),
-        1 => Ok(unlabeled.pop()),
+        1 => Ok(Some(unlabeled[0])),
         _ => Err("같은 이름의 플러그인이 여러 개 있어 자동으로 고르지 않았습니다. Claude 앱 디렉터리에서 직접 골라 주세요.".into()),
+    }
+}
+
+fn pick_link(found: Vec<El>, repo: Option<&str>) -> Result<Option<El>, String> {
+    let texts: Vec<Vec<String>> = found
+        .iter()
+        .map(|e| {
+            let mut t = vec![];
+            e.texts(0, &mut t);
+            t
+        })
+        .collect();
+    Ok(choose_link(&texts, repo)?.map(|i| found[i].clone()))
+}
+
+/// 상세 화면에서 누를 버튼을 고른다. 이름 근처 후보가 하나면 그것, 근처 후보가 없으면 화면 전체에 후보가 하나뿐일 때만.
+pub fn choose_button(near: usize, total: usize) -> Result<Option<bool>, String> {
+    match (near, total) {
+        (1, _) => Ok(Some(true)),
+        (0, 1) => Ok(Some(false)),
+        (0, 0) => Ok(None),
+        _ => Err("추가 버튼이 여러 개라 자동으로 누르지 않았습니다. Claude 앱에서 직접 추가해 주세요.".into()),
     }
 }
 
@@ -254,15 +270,17 @@ fn detail_page(root: &El, name: &str) -> Result<Option<Page>, String> {
         "AXStaticText" => ADDED.contains(&e.text("AXValue").as_str()),
         _ => false,
     });
-    let near: Vec<El> = hits.into_iter().filter(|e| near_name(e, name)).collect();
-    if near.iter().any(|e| e.role() == "AXStaticText" || ADDED.contains(&e.label().as_str())) {
+    let total = hits.len();
+    let (near, far): (Vec<El>, Vec<El>) = hits.into_iter().partition(|e| near_name(e, name));
+    let added = |e: &El| e.role() == "AXStaticText" || ADDED.contains(&e.label().as_str());
+    if near.iter().any(added) || (near.is_empty() && far.len() == 1 && far.iter().any(added)) {
         return Ok(Some(Page::Added));
     }
-    match near.len() {
-        0 => Ok(None),
-        1 => Ok(near.into_iter().next().map(Page::Add)),
-        _ => Err("추가 버튼이 여러 개라 자동으로 누르지 않았습니다. Claude 앱에서 직접 추가해 주세요.".into()),
-    }
+    Ok(match choose_button(near.len(), total)? {
+        Some(true) => near.into_iter().next().map(Page::Add),
+        Some(false) => far.into_iter().next().map(Page::Add),
+        None => None,
+    })
 }
 
 /// wait_for와 같지만, 판정 중 오류가 나면 바로 멈춘다.

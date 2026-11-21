@@ -553,3 +553,35 @@ fn security_defenses() {
     assert_eq!(crate::guide::truncate(&"가".repeat(50_000), crate::guide::CONTEXT_LIMIT).len() <= crate::guide::CONTEXT_LIMIT, true);
     let _ = fs::remove_dir_all(&d);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn ax_choice_is_strict() {
+    use crate::mac_ax::{choose_button, choose_link};
+    let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // 저장소가 맞는 결과를 고른다
+    assert_eq!(choose_link(&[v(&["Superpowers", "evil/superpowers"]), v(&["Superpowers", "obra/superpowers"])], Some("obra/superpowers")), Ok(Some(1)));
+    // 저장소가 다르게 표시된 결과만 있으면 고르지 않는다
+    assert_eq!(choose_link(&[v(&["Superpowers", "evil/superpowers"])], Some("obra/superpowers")), Ok(None));
+    // 저장소 표시가 없는 결과는 하나뿐일 때만
+    assert_eq!(choose_link(&[v(&["skill-creator"])], Some("anthropics/skills")), Ok(Some(0)));
+    assert!(choose_link(&[v(&["x"]), v(&["x"])], None).is_err(), "같은 이름 여러 개면 멈춤");
+    // 버튼: 이름 근처 하나 / 근처 없으면 전체 하나뿐일 때만 / 그 외 멈춤
+    assert_eq!(choose_button(1, 3), Ok(Some(true)));
+    assert_eq!(choose_button(0, 1), Ok(Some(false)));
+    assert_eq!(choose_button(0, 0), Ok(None));
+    assert!(choose_button(0, 2).is_err());
+    assert!(choose_button(2, 2).is_err());
+}
+
+#[test]
+fn guide_json_extraction_never_panics() {
+    use crate::guide::extract_json;
+    // claude-security 스캔 F1: 괄호 순서가 뒤집힌 모델 출력으로 패닉(=앱 종료)하던 문제
+    for evil in ["} guide unavailable {", "}{", "}", "{", "", "}}} {{{", "가}나{다", "{\"a\":1} 끝 }"] {
+        let _ = extract_json(evil);
+    }
+    assert!(extract_json("} x {").is_none());
+    let v = extract_json("설명: {\"summary\":\"요약\"} 끝").unwrap();
+    assert_eq!(v.get("summary").and_then(|v| v.as_str()), Some("요약"));
+}
