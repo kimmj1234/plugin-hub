@@ -9,6 +9,17 @@ import { GuidePanel } from "../components/GuidePanel";
 const PAGE = 60;
 type Sort = "popular" | "new" | "name";
 type Filter = "all" | "fresh" | "installed";
+type Surface = "cli" | "desktop";
+const DIRECTORY = "anthropic-plugin-directory";
+const SURFACE_LABEL: Record<Surface, string> = { cli: "터미널", desktop: "Claude 앱" };
+
+function loadSurface(): Surface {
+  try {
+    return localStorage.getItem("discover.surface") === "desktop" ? "desktop" : "cli";
+  } catch {
+    return "cli";
+  }
+}
 
 interface Row extends CatalogEntry {
   cats: string[];
@@ -30,29 +41,57 @@ export function Discover() {
   const [confirm, setConfirm] = useState<CatalogEntry | null>(null);
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
-
-  const cliIds = useMemo(() => new Set(snap?.plugins.filter((p) => p.surface === "cli" && p.installed).map((p) => p.id)), [snap]);
-  const appNames = useMemo(
-    () => new Set(snap?.plugins.filter((p) => p.surface === "desktop").flatMap((p) => [p.displayName.toLowerCase(), p.id.toLowerCase()])),
-    [snap],
-  );
-  const installedWhere = (e: CatalogEntry) => {
-    const where: string[] = [];
-    if (cliIds.has(e.pluginId)) where.push("터미널");
-    if (appNames.has(e.name.toLowerCase()) || appNames.has(e.pluginId.toLowerCase())) where.push("Claude 앱");
-    return where;
+  const [surface, setSurfaceState] = useState<Surface>(loadSurface);
+  const setSurface = (s: Surface) => {
+    setSurfaceState(s);
+    setSelectedId(null);
+    setMkt("");
+    try {
+      localStorage.setItem("discover.surface", s);
+    } catch {
+      return;
+    }
   };
 
-  const rows: Row[] = useMemo(
-    () =>
-      (catalog?.entries ?? []).map((e) => ({
-        ...e,
-        cats: categorize(e.name, e.description),
-        stars: stars(e.sourceUrl),
-        ko: koDescription(e.pluginId),
-      })),
-    [catalog],
+  const cliIds = useMemo(() => new Set(snap?.plugins.filter((p) => p.surface === "cli" && p.installed).map((p) => p.id)), [snap]);
+  const appPlugins = useMemo(() => snap?.plugins.filter((p) => p.surface === "desktop") ?? [], [snap]);
+  const appNames = useMemo(() => new Set(appPlugins.flatMap((p) => [p.displayName.toLowerCase(), p.id.toLowerCase()])), [appPlugins]);
+  const inApp = (e: CatalogEntry) => appNames.has(e.name.toLowerCase()) || appNames.has(e.pluginId.toLowerCase());
+  const installedOn = (e: CatalogEntry, s: Surface) => (s === "cli" ? cliIds.has(e.pluginId) : inApp(e));
+  const other: Surface = surface === "cli" ? "desktop" : "cli";
+  const appMarkets = useMemo(() => new Set([DIRECTORY, ...appPlugins.map((p) => p.marketplace)]), [appPlugins]);
+
+  const { allRows, appOnly } = useMemo(() => {
+    const entries = catalog?.entries ?? [];
+    const names = new Set(entries.flatMap((e) => [e.name.toLowerCase(), e.pluginId.toLowerCase()]));
+    const extra: CatalogEntry[] = appPlugins
+      .filter((p) => !names.has(p.displayName.toLowerCase()) && !names.has(p.id.toLowerCase()))
+      .map((p) => ({
+        pluginId: p.id,
+        name: p.displayName,
+        description: p.description,
+        marketplace: p.marketplace,
+        version: p.version,
+        sourceUrl: p.repository ?? p.homepage,
+        installable: false,
+        isNew: false,
+        updated: false,
+        firstSeen: 0,
+      }));
+    const allRows: Row[] = [...entries, ...extra].map((e) => ({
+      ...e,
+      cats: categorize(e.name, e.description),
+      stars: stars(e.sourceUrl),
+      ko: koDescription(e.pluginId),
+    }));
+    return { allRows, appOnly: new Set(extra.map((e) => e.pluginId)) };
+  }, [catalog, appPlugins]);
+
+  const rows = useMemo(
+    () => (surface === "cli" ? allRows.filter((e) => !appOnly.has(e.pluginId)) : allRows.filter((e) => appMarkets.has(e.marketplace) || inApp(e))),
+    [allRows, appOnly, surface, appMarkets, appNames],
   );
+  const installedCount = (s: Surface) => (s === "cli" ? cliIds.size : appPlugins.length);
 
   const catCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -71,10 +110,10 @@ export function Discover() {
           (cat === "all" || e.cats.includes(cat)) &&
           (!mkt || e.marketplace === mkt) &&
           (filter !== "fresh" || e.isNew || e.updated) &&
-          (filter !== "installed" || installedWhere(e).length > 0) &&
+          (filter !== "installed" || installedOn(e, surface)) &&
           (!q || `${e.name} ${e.description} ${e.ko ?? ""} ${e.pluginId}`.toLowerCase().includes(q)),
       ),
-    [rows, cat, mkt, filter, q, cliIds, appNames],
+    [rows, cat, mkt, filter, q, surface, cliIds, appNames],
   );
 
   const sorted = useMemo(() => {
@@ -130,7 +169,8 @@ export function Discover() {
   };
 
   const renderRow = (e: Row, rank?: number) => {
-    const where = installedWhere(e);
+    const here = installedOn(e, surface);
+    const there = installedOn(e, other);
     return (
       <li key={e.pluginId} className={`${selectedId === e.pluginId ? "selected" : ""} ${rank ? "top" : ""}`} onClick={() => setSelectedId(e.pluginId)}>
         {rank && <div className="rank">{rank}</div>}
@@ -139,6 +179,7 @@ export function Discover() {
             {e.name}
             {e.isNew && <span className="badge new">NEW</span>}
             {e.updated && <span className="badge upd">업데이트</span>}
+            {there && <span className="badge" title={`${SURFACE_LABEL[other]}에도 설치되어 있습니다`}>{SURFACE_LABEL[other]}에도 있음</span>}
           </div>
           <div className="pl-desc">{e.ko ?? e.description}</div>
           <div className="pl-sub">
@@ -147,12 +188,14 @@ export function Discover() {
             {e.version && ` · v${e.version}`}
           </div>
         </div>
-        {where.length > 0 ? (
-          <span className="badge ok" title={`${where.join(", ")}에 설치됨`}>{where.join("·")} 설치됨</span>
+        {here ? (
+          <span className="badge ok">설치됨</span>
         ) : busy[e.pluginId] ? (
           <span className="spinner-text">{busy[e.pluginId]}…</span>
-        ) : (
+        ) : surface === "cli" ? (
           e.installable && <button onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}>설치</button>
+        ) : (
+          <span className="muted small">앱에서 추가</span>
         )}
       </li>
     );
@@ -163,6 +206,19 @@ export function Discover() {
   return (
     <div className="split">
       <div className="pane list-pane wide">
+        <div className="seg surface-seg" role="tablist" aria-label="설치 대상">
+          {(["cli", "desktop"] as Surface[]).map((s) => (
+            <button key={s} role="tab" aria-selected={surface === s} className={surface === s ? "active" : ""} onClick={() => setSurface(s)}>
+              {s === "cli" ? "💻 터미널·Claude Code" : "🖥️ Claude 앱"} <span className="count">{installedCount(s)}개 설치</span>
+            </button>
+          ))}
+        </div>
+        <p className="muted small surface-help">
+          {surface === "cli"
+            ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
+            : "Claude 앱의 채팅·Cowork에서 쓰는 플러그인입니다. 계정에 동기화되므로 설치는 Claude 앱에서 하고, 여기서는 목록과 설치 상태를 봅니다."}
+        </p>
+
         <div className="toolbar">
           <input className="search" autoFocus placeholder="이름·용도로 검색 (한국어 가능: 배포, 테스트, 디자인…)" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button onClick={() => refreshCatalog(true)} disabled={catalogLoading} title="마켓플레이스 원본까지 다시 받아 새 플러그인·업데이트를 확인합니다">
@@ -219,14 +275,14 @@ export function Discover() {
         {rest.length > limit && <button className="more" onClick={() => setLimit(limit + PAGE)}>더 보기 ({(rest.length - limit).toLocaleString()}개 남음)</button>}
         {catalog && sorted.length === 0 && <div className="empty">조건에 맞는 플러그인이 없습니다.</div>}
 
-        <div className="add-mkt">
+        {surface === "cli" && <div className="add-mkt">
           <h3>마켓플레이스 추가</h3>
           <p className="muted small">GitHub 저장소(<code>owner/repo</code>)나 Git URL을 입력하면 그 마켓플레이스의 플러그인도 검색됩니다.</p>
           <div className="row">
             <input placeholder="예: anthropics/claude-plugins-official" value={mktSource} onChange={(e) => setMktSource(e.target.value)} />
             <button onClick={addMarket} disabled={!mktSource.trim() || !!busy.mkt}>{busy.mkt ? "추가 중…" : "추가"}</button>
           </div>
-        </div>
+        </div>}
       </div>
 
       <div className="pane detail-pane">
@@ -249,11 +305,14 @@ export function Discover() {
               {selected.version && <span className="badge">v{selected.version}</span>}
             </div>
             <div className="actions">
-              {installedWhere(selected).length > 0 ? (
-                <span className="badge ok">{installedWhere(selected).join("·")}에 설치됨 · '설치된 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
-              ) : (
+              {installedOn(selected, surface) ? (
+                <span className="badge ok">{SURFACE_LABEL[surface]}에 설치됨 · '설치된 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
+              ) : surface === "cli" ? (
                 selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => openConfirm(selected)}>설치</button>
+              ) : (
+                <span className="badge">Claude 앱의 플러그인 메뉴에서 추가하면 여기에 바로 반영됩니다</span>
               )}
+              {installedOn(selected, other) && <span className="badge">{SURFACE_LABEL[other]}에도 설치됨</span>}
               {selected.sourceUrl && /^https?:\/\//.test(selected.sourceUrl) && (
                 <button onClick={() => openUrl(selected.sourceUrl!).catch((e) => toast("error", errorText(e)))}>소스 저장소 열기</button>
               )}
@@ -263,7 +322,9 @@ export function Discover() {
               <GuidePanel key={selected.pluginId} id={selected.pluginId} version={selected.version} installed={false} name={selected.name} description={selected.description} />
             </section>
             <p className="note">
-              설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.
+              {surface === "desktop"
+                ? "Claude 앱 플러그인은 계정과 동기화되어 Claude 앱이 관리합니다. 터미널에도 쓰려면 위에서 '터미널·Claude Code'를 골라 설치하세요."
+                : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>
         ) : (

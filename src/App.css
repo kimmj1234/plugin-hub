@@ -265,3 +265,7 @@ label.radio input { margin-top: 3px; }
 .scope-choice { background: var(--code); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
 .settings-block { border: 1px solid var(--line); border-radius: 10px; padding: 4px 16px 14px; margin-bottom: 14px; background: var(--panel); }
 button.link.danger { color: var(--err); }
+.surface-seg { display: flex; width: 100%; margin-bottom: 6px; }
+.surface-seg button { flex: 1; padding: 7px 10px; font-size: 13px; }
+.surface-seg .count { margin-left: 4px; font-weight: 400; }
+.surface-help { margin: 0 0 8px; }
