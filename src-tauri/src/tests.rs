@@ -33,11 +33,17 @@ fn scan_rules_and_toggle_on_fake_home() {
             r#"{{"version":2,"plugins":{{
               "a@mk":[{{"scope":"user","installPath":"{}","version":"1.0.0"}}],
               "b@mk":[{{"scope":"user","installPath":"{}","version":"1.0.0"}}],
-              "gone@mk":[{{"scope":"user","installPath":"/nonexistent/path","version":"0.1.0"}}]
+              "gone@mk":[{{"scope":"user","installPath":"/nonexistent/path","version":"0.1.0"}}],
+              "fd@anthropic-plugin-directory":[{{"scope":"user","installPath":"{}","version":"1.1.1-73c8cf3ea7e2"}}]
             }}}}"#,
             a.display(),
+            b.display(),
             b.display()
         ),
+    );
+    write(
+        home.join("plugins/plugin-directory-cache-v2.json"),
+        r#"{"schemaVersion":2,"listings":[{"name":"fd","release":{"version":"1.1.1"}}]}"#,
     );
     write(
         home.join("plugins/known_marketplaces.json"),
@@ -68,6 +74,8 @@ fn scan_rules_and_toggle_on_fake_home() {
     assert!(ids.contains(&"hooks:a@mk"), "훅 안내");
     assert!(ids.contains(&"skill-clash:deploy"), "스킬 충돌");
     assert!(!ids.contains(&"update:b@mk"), "같은 버전은 업데이트 아님");
+    assert!(!ids.iter().any(|i| i.starts_with("unknown-mkt:fd@")), "내장 공식 디렉터리는 등록된 것으로 취급");
+    assert!(!ids.contains(&"update:fd@anthropic-plugin-directory"), "1.1.1-해시는 1.1.1과 같은 버전");
     assert_eq!(snap.diagnostics[0].severity, "error", "오류가 먼저 정렬");
 
     settings::set_enabled("a@mk", Some(false), &backups).unwrap();

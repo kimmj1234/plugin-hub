@@ -111,6 +111,7 @@ Claude Code 플러그인은 GitHub와 여러 마켓플레이스에서 계속 늘
 | 터미널·Claude Code | `~/.claude/settings.json` | `enabledPlugins` (켜짐 여부), `extraKnownMarketplaces` |
 | | `~/.claude/plugins/installed_plugins.json` | 설치 기록 (버전, 범위, 설치 경로) |
 | | `~/.claude/plugins/known_marketplaces.json` | 등록된 마켓플레이스 |
+| | `~/.claude/plugins/plugin-directory-cache-v2.json` | 내장 공식 디렉터리(`anthropic-plugin-directory`)의 플러그인 목록과 최신 버전. 이 마켓플레이스는 위 파일에 기록되지 않음 |
 | 폴더(프로젝트)별 | `<폴더>/.claude/settings.json` / `settings.local.json` | 그 폴더에서만 적용되는 `enabledPlugins` (팀 공유 / 나만). 폴더 설정이 PC 전체 설정보다 우선 |
 | | `~/.claude.json`의 `projects` | Claude Code로 작업했던 폴더 목록 (폴더 추천에 사용) |
 | | `~/.claude/plugins/cache/<마켓>/<이름>/<버전>/` | 플러그인 본체 (`.claude-plugin/plugin.json`, `skills/`, `hooks/` 등) |
@@ -277,6 +278,11 @@ npm run dev
 - **문제:** 3,700여 개 플러그인 설명이 대부분 영어다.
 - **시도:** 앱 안에서 Claude로 번역하려 했지만, Claude 앱 내장 CLI는 단독 실행 시 로그인되어 있지 않았다(`Not logged in`).
 - **결과:** 두 층으로 나눴다. 공식 플러그인 119개는 한국어 요약을 미리 번역해 내장했다. 나머지는 사용자가 원할 때 로그인된 Claude Code로 가이드를 만들어 저장한다. 가이드를 만들 때는 빈 폴더에서 `--setting-sources project --tools ""`로 실행한다. 이렇게 해서 사용자의 다른 플러그인 훅이 실행되거나 도구가 쓰이지 않게 했다.
+
+### 공식 디렉터리 플러그인을 "등록되지 않은 마켓플레이스"로 오진
+- **문제:** 공식 디렉터리에서 플러그인을 설치하자 진단에 "마켓플레이스 'anthropic-plugin-directory'가 등록되어 있지 않습니다" 경고가 떴다(사용자 제보).
+- **원인:** 이 마켓플레이스는 Claude Code에 내장되어 있어 `known_marketplaces.json`이 아니라 `plugin-directory-cache-v2.json`으로 관리된다.
+- **결과:** 디렉터리 캐시가 있으면 등록된 것으로 보고, 캐시의 버전으로 업데이트도 확인한다. 설치 버전 뒤에 붙는 커밋 해시(`1.1.1-73c8cf3`)는 비교에서 뺀다.
 
 ### 설치한 플러그인이 '플러그인 찾기'에서 사라짐
 - **문제:** 실제 CLI로 돌린 통합 테스트에서, 설치한 플러그인이 카탈로그 목록에 없었다.

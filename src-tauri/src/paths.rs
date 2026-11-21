@@ -37,6 +37,12 @@ pub fn claude_global_config() -> PathBuf {
     }
 }
 
+pub const DIRECTORY_MARKETPLACE: &str = "anthropic-plugin-directory";
+
+pub fn plugin_directory_cache() -> PathBuf {
+    plugins_dir().join("plugin-directory-cache-v2.json")
+}
+
 pub fn known_marketplaces_file() -> PathBuf {
     plugins_dir().join("known_marketplaces.json")
 }
@@ -181,7 +187,11 @@ pub fn is_semver(v: &str) -> bool {
 }
 
 pub fn version_key(v: &str) -> Vec<u64> {
-    v.split(|c: char| !c.is_ascii_digit())
+    v.trim_start_matches('v')
+        .split(['-', '+'])
+        .next()
+        .unwrap_or("")
+        .split(|c: char| !c.is_ascii_digit())
         .filter(|s| !s.is_empty())
         .map(|s| s.parse().unwrap_or(0))
         .collect()

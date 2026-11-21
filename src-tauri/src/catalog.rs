@@ -87,7 +87,7 @@ fn installed_entry(id: &str, e: &Value) -> CatalogEntry {
 }
 
 fn from_local_cache() -> Vec<CatalogEntry> {
-    let Ok(v) = read_json(&paths::plugins_dir().join("plugin-directory-cache-v2.json")) else {
+    let Ok(v) = read_json(&paths::plugin_directory_cache()) else {
         return Vec::new();
     };
     v.get("listings")
@@ -97,9 +97,9 @@ fn from_local_cache() -> Vec<CatalogEntry> {
                 .filter_map(|e| {
                     let name = s(e, "name")?;
                     Some(CatalogEntry {
-                        plugin_id: format!("{name}@anthropic-plugin-directory"),
+                        plugin_id: format!("{name}@{}", paths::DIRECTORY_MARKETPLACE),
                         description: s(e, "summary").unwrap_or_default(),
-                        marketplace: "anthropic-plugin-directory".into(),
+                        marketplace: paths::DIRECTORY_MARKETPLACE.into(),
                         version: e.get("release").and_then(|r| s(r, "version")),
                         source_url: e
                             .get("source")

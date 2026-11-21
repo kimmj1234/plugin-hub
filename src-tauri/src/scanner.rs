@@ -234,16 +234,36 @@ pub fn read_settings() -> SettingsInfo {
     info
 }
 
+fn directory_marketplace(versions: &mut HashMap<String, String>) -> Option<Marketplace> {
+    let v = read_json(&paths::plugin_directory_cache()).ok()?;
+    let listings = v.get("listings")?.as_array()?;
+    for l in listings {
+        if let (Some(n), Some(ver)) = (str_of(l, "name"), l.get("release").and_then(|r| str_of(r, "version"))) {
+            versions.insert(format!("{n}@{}", paths::DIRECTORY_MARKETPLACE), ver);
+        }
+    }
+    Some(Marketplace {
+        name: paths::DIRECTORY_MARKETPLACE.into(),
+        source: "Claude Code 내장 공식 디렉터리".into(),
+        install_location: None,
+        plugin_count: listings.len(),
+    })
+}
+
 fn read_marketplaces() -> (Vec<Marketplace>, HashMap<String, String>) {
     let mut list = Vec::new();
     let mut versions = HashMap::new();
-    let Ok(v) = read_json(&paths::known_marketplaces_file()) else {
-        return (list, versions);
-    };
-    let Some(obj) = v.as_object() else {
-        return (list, versions);
-    };
-    for (name, m) in obj {
+    if let Some(d) = directory_marketplace(&mut versions) {
+        list.push(d);
+    }
+    let obj = read_json(&paths::known_marketplaces_file())
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    for (name, m) in &obj {
+        if name == paths::DIRECTORY_MARKETPLACE {
+            list.retain(|x| x.name != *name);
+        }
         let src = m.get("source").cloned().unwrap_or(Value::Null);
         let source = str_of(&src, "repo")
             .or_else(|| str_of(&src, "url"))
