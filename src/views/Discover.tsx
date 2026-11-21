@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, cliMessage, errorText } from "../api";
 import { useHub } from "../hub";
 import type { AcceptPrompt, CatalogEntry, InstallScope } from "../types";
@@ -11,6 +12,7 @@ const PAGE = 60;
 type Sort = "popular" | "new" | "name";
 type Filter = "all" | "fresh" | "installed";
 type Surface = "cli" | "desktop";
+type Pending = { entry: CatalogEntry; search: string; repo: string | null; status: "running" | "added" | "permission" | "error" | "manual"; error?: string };
 const DIRECTORY = "anthropic-plugin-directory";
 const SURFACE_LABEL: Record<Surface, string> = { cli: "터미널", desktop: "Claude 앱" };
 
@@ -43,7 +45,7 @@ export function Discover() {
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
   const [surface, setSurfaceState] = useState<Surface>(loadSurface);
-  const [pending, setPending] = useState<{ entry: CatalogEntry; search: string; repo: string | null } | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
   const setSurface = (s: Surface) => {
     setSurfaceState(s);
     setSelectedId(null);
@@ -107,20 +109,26 @@ export function Discover() {
   const installInApp = async (e: CatalogEntry) => {
     const search = e.appName || e.name;
     const repo = marketRepo(e);
-    setPending({ entry: e, search, repo });
-    try {
-      if (repo) {
+    if (repo) {
+      setPending({ entry: e, search, repo, status: "manual" });
+      try {
         await api.openInClaudeApp("add-marketplace", repo, e.name);
-      } else {
-        try {
-          await navigator.clipboard.writeText(search);
-        } catch {
-          toast("info", `검색창에 '${search}'를 입력하세요.`);
-        }
-        await api.openInClaudeApp("directory");
+      } catch (err) {
+        toast("error", errorText(err));
       }
+      return;
+    }
+    setPending({ entry: e, search, repo: null, status: "running" });
+    try {
+      const r = await api.installInClaudeApp(search, e.sourceUrl);
+      setPending((p) => (p && p.entry.pluginId === e.pluginId ? { ...p, status: "added" } : p));
+      toast("ok", r === "already" ? `${search}: 이미 Claude 앱에 추가되어 있습니다` : `${search}: Claude 앱에 설치했습니다`);
+      getCurrentWindow().setFocus().catch(() => undefined);
     } catch (err) {
-      toast("error", errorText(err));
+      const msg = errorText(err);
+      const status = msg.includes("NEEDS_ACCESSIBILITY") ? "permission" : "error";
+      setPending((p) => (p && p.entry.pluginId === e.pluginId ? { ...p, status, error: status === "error" ? msg : undefined } : p));
+      getCurrentWindow().setFocus().catch(() => undefined);
     }
   };
   const pendingDone = pending ? inApp(pending.entry) : false;
@@ -227,7 +235,7 @@ export function Discover() {
         ) : surface === "cli" ? (
           e.installable && <button onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}>설치</button>
         ) : (
-          <button onClick={(ev) => { ev.stopPropagation(); installInApp(e); }} title="Claude 앱에서 이 플러그인을 설치합니다">앱에 설치</button>
+          <button onClick={(ev) => { ev.stopPropagation(); installInApp(e); }} title="Claude 앱에 자동으로 설치합니다">앱에 설치</button>
         )}
       </li>
     );
@@ -255,23 +263,58 @@ export function Discover() {
               </>
             ) : (
               <>
-                <strong>'{pending.search}' Claude 앱에서 설치하기</strong>
-                {pending.repo ? (
-                  <ol className="small">
-                    <li>Claude 앱에 <strong>마켓플레이스 추가</strong> 창이 열렸습니다. URL에 <code className="mono">{pending.repo}</code>가 들어가 있습니다.</li>
-                    <li><strong>동기화</strong>를 누른 뒤 목록에서 <strong>{pending.search}</strong>의 <strong>추가</strong>를 누릅니다.</li>
-                  </ol>
-                ) : (
-                  <ol className="small">
-                    <li>Claude 앱의 <strong>디렉터리</strong>가 열리고 검색창에 커서가 있습니다. <strong>⌘V</strong>로 붙여 넣습니다. (<strong>{pending.search}</strong>가 복사되어 있습니다)</li>
-                    <li>검색 결과의 <strong>{pending.search}</strong>를 누르고 <strong>추가</strong>(또는 오른쪽 <strong>+</strong>)를 누릅니다.</li>
-                  </ol>
+                {pending.status === "running" && (
+                  <>
+                    <strong><span className="spinner-text">'{pending.search}' Claude 앱에 설치하는 중…</span></strong>
+                    <p className="small">Claude 앱이 열리고 검색 → 플러그인 화면 → 추가가 자동으로 진행됩니다. 끝날 때까지 키보드와 마우스를 잠시 쓰지 마세요.</p>
+                  </>
                 )}
-                <p className="muted small">Claude 앱 안에서 바로 내려받아 설치되고, 끝나면 이 안내가 자동으로 '설치 완료'로 바뀝니다. 브라우저는 열리지 않습니다.</p>
-                <div className="row">
-                  <button className="primary" onClick={() => installInApp(pending.entry)}>Claude 앱 다시 열기</button>
-                  <button className="link" onClick={() => setPending(null)}>취소</button>
-                </div>
+                {pending.status === "added" && (
+                  <>
+                    <strong>'{pending.search}' Claude 앱에 추가했습니다</strong>
+                    <p className="small">Claude 앱이 파일을 내려받는 중입니다. 끝나면 '설치 완료'로 바뀝니다.</p>
+                  </>
+                )}
+                {pending.status === "permission" && (
+                  <>
+                    <strong>자동 설치에 '손쉬운 사용' 권한이 필요합니다</strong>
+                    <ol className="small">
+                      <li>아래 <strong>설정 열기</strong>를 누르면 macOS 설정의 <strong>손쉬운 사용</strong>이 열립니다.</li>
+                      <li>목록에서 <strong>Plugin Hub</strong>를 켭니다. (없으면 + 를 눌러 응용 프로그램의 Plugin Hub를 추가)</li>
+                      <li>돌아와서 <strong>다시 시도</strong>를 누릅니다.</li>
+                    </ol>
+                    <p className="muted small">이 권한으로 Plugin Hub는 '설치'를 누른 플러그인을 Claude 앱 디렉터리에서 찾아 추가 버튼을 대신 누릅니다. 그 밖의 앱이나 화면은 조작하지 않습니다.</p>
+                    <div className="row">
+                      <button className="primary" onClick={() => api.openAccessibilitySettings().catch((e) => toast("error", errorText(e)))}>설정 열기</button>
+                      <button onClick={() => installInApp(pending.entry)}>다시 시도</button>
+                      <button className="link" onClick={() => setPending(null)}>취소</button>
+                    </div>
+                  </>
+                )}
+                {pending.status === "error" && (
+                  <>
+                    <strong>'{pending.search}' 자동 설치를 끝내지 못했습니다</strong>
+                    <p className="small">{pending.error}</p>
+                    <p className="muted small">Claude 앱 디렉터리에서 '{pending.search}'를 검색해 직접 추가해도 됩니다.</p>
+                    <div className="row">
+                      <button className="primary" onClick={() => installInApp(pending.entry)}>다시 시도</button>
+                      <button className="link" onClick={() => setPending(null)}>닫기</button>
+                    </div>
+                  </>
+                )}
+                {pending.status === "manual" && (
+                  <>
+                    <strong>'{pending.search}' Claude 앱에서 설치하기</strong>
+                    <ol className="small">
+                      <li>Claude 앱에 <strong>마켓플레이스 추가</strong> 창이 열렸습니다. URL에 <code className="mono">{pending.repo}</code>가 들어가 있습니다.</li>
+                      <li><strong>동기화</strong>를 누른 뒤 목록에서 <strong>{pending.search}</strong>의 <strong>추가</strong>를 누릅니다.</li>
+                    </ol>
+                    <div className="row">
+                      <button className="primary" onClick={() => installInApp(pending.entry)}>Claude 앱 다시 열기</button>
+                      <button className="link" onClick={() => setPending(null)}>취소</button>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -279,7 +322,7 @@ export function Discover() {
         <p className="muted small surface-help">
           {surface === "cli"
             ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
-            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱의 디렉터리가 열리고, 붙여 넣어 검색한 뒤 '추가'를 누르면 바로 설치되어 여기에 표시됩니다."}
+            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱에서 검색·추가·내려받기까지 자동으로 진행되고 여기에 표시됩니다."}
         </p>
 
         <div className="toolbar">
@@ -386,7 +429,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 디렉터리가 열립니다. 앱 안에서 '추가'를 누르면 바로 내려받아 설치됩니다. 앱 플러그인은 계정에 연결되어 있어 마지막 '추가'는 보안상 사용자가 직접 누릅니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
+                ? "'Claude 앱에 설치'를 누르면 Plugin Hub가 Claude 앱 디렉터리에서 이 플러그인을 찾아 추가하고, Claude 앱이 바로 내려받습니다. 처음 한 번은 macOS '손쉬운 사용' 권한을 허용해야 합니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

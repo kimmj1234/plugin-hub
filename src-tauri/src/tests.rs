@@ -326,6 +326,10 @@ fn builds_claude_app_links_safely() {
     assert!(url_for("chat", Some(&"가".repeat(8001))).is_err());
     assert!(url_for("other", None).is_err());
     assert_eq!(url_for("directory", None).unwrap(), "claude://claude.ai/directory");
+    use crate::claude_app::repo_of_for_test as repo_of;
+    assert_eq!(repo_of("https://github.com/obra/superpowers").as_deref(), Some("obra/superpowers"));
+    assert_eq!(repo_of("https://github.com/o/r.git/").as_deref(), Some("o/r"));
+    assert_eq!(repo_of("https://gitlab.com/o/r"), None);
     use crate::claude_app::url_for_with;
     assert_eq!(
         url_for_with("add-marketplace", Some("jocoding-ax-partners/axhub"), Some("axhub")).unwrap(),
@@ -359,4 +363,15 @@ fn cli_timeout_kills_child_tree() {
     assert!(!r.ok);
     assert!(r.stderr.contains("시간 초과"));
     assert!(started.elapsed() < std::time::Duration::from_secs(8));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore]
+fn auto_install_real() {
+    let name = std::env::var("PLUGIN_NAME").expect("PLUGIN_NAME");
+    let url = std::env::var("PLUGIN_URL").ok();
+    let r = crate::claude_app::auto_install(&name, url.as_deref());
+    println!("auto_install({name}) = {r:?}");
+    assert!(r.is_ok());
 }

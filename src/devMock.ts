@@ -218,6 +218,11 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
     case "add_marketplace":
       await wait(800);
       return ok(`Added marketplace ${args.source}`);
+    case "install_in_claude_app":
+      await wait(1500);
+      return "added";
+    case "open_accessibility_settings":
+      return null;
     case "open_in_claude_app":
       console.info("[mock] Claude 앱 열기", args);
       return null;

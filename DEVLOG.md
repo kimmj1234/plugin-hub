@@ -27,6 +27,33 @@
 
 ---
 
+## 2026-11-21 (11)
+
+### 한 일
+- 사용자 요청: "직접 설치를 누르는 것이 아닌 설치까지 완전 자동으로".
+- macOS 손쉬운 사용(Accessibility) API로 Claude 앱 화면 구조를 조사했다. 디렉터리 검색창(placeholder "플러그인 및 커넥터 검색"), 결과 링크("Superpowers 보기", 하위에 `obra/superpowers`), 상세 화면의 "추가" 버튼이 모두 읽혔다.
+- 새 모듈 `src-tauri/src/mac_ax.rs`(macOS 전용)를 추가했다. 권한 확인 → `claude://claude.ai/directory` 열기 → 검색창에 포커스를 주고 ⌘A 후 이름 입력(Claude 앱 프로세스에만 키 이벤트를 보냄) → 이름·저장소가 맞는 결과 링크 누르기 → "추가" 누르기 → "추가됨" 표시 확인 순서로 진행한다. 다른 OS에서는 "macOS만 지원"을 돌려준다.
+- 명령 `install_in_claude_app(name, repo)`, `open_accessibility_settings`를 추가했다. 화면에는 설치 중 → 추가됨 → 설치 완료(파일 감시로 감지) 카드를 띄우고, 권한이 없으면 설정 열기·다시 시도 안내를 띄운다. 끝나면 Plugin Hub 창을 다시 앞으로 가져온다(`core:window:allow-set-focus` 권한 추가).
+- 실제 계정 테스트: Superpowers(시험 스크립트), skill-creator, pr-review-toolkit(앱 코드 그대로 실행하는 ignored 테스트 `auto_install_real`). pr-review-toolkit은 클릭 없이 11초 만에 `added`. `plugins.json` 11→12, `rpm/plugin_…` 폴더 생성을 확인했다. 이미 추가된 skill-creator는 `already`로 인식했다.
+
+### 막힌 점과 해결
+- `pgrep`이 이 환경에서 아무것도 돌려주지 않아 "Claude 앱이 열리지 않았습니다" 오류가 났다. `ps -axo pid=,comm=`에서 `/Claude.app/Contents/MacOS/Claude`로 찾도록 바꿨다.
+- 추가 후 완료 판정 실패: "추가됨"이 버튼이 아니라 글자(AXStaticText)로 바뀌고 "추가" 버튼은 사라진다. 실제 화면 구조를 다시 읽고 판정을 고쳤다(설치 자체는 성공했었다).
+- `core-graphics`의 `post_to_pid`는 `elcapitan` 기능을 켜야 쓸 수 있었다.
+
+### AI에게 맡긴 것과 내가 판단한 것
+- AI에게 맡긴 것: 자동화 방법 조사, 구현, 실제 계정 설치 테스트.
+- 내가 판단/결정한 것: 사용자가 "추가"를 직접 누르는 방식은 받아들이지 않고 완전 자동을 요구.
+- AI 제안을 거절하거나 바꾼 것: "마지막 클릭은 보안상 사용자가 직접" 제안을 거절.
+
+### 확인 못 한 것
+- Plugin Hub 창이 다른 데스크톱 공간에 있어, Plugin Hub 화면의 "앱에 설치" 버튼을 직접 누르는 과정은 하지 못했다. 같은 Rust 함수는 실제로 실행해 확인했다.
+- 설치된 Plugin Hub는 ad-hoc 서명이라, 다시 빌드할 때마다 macOS가 손쉬운 사용 권한을 다시 요구할 수 있다.
+- 영어 UI는 버튼 이름 후보("Add", "Added", "View …")만 넣었고 실제로 시험하지 않았다.
+
+### 배운 점
+- 다른 앱 화면 자동화는 "보이는 대로"가 아니라 손쉬운 사용 트리에 실제로 어떻게 잡히는지를 보고 짜야 한다.
+
 ## 2026-11-21 (10)
 
 ### 한 일

@@ -26,6 +26,10 @@ serde_json = { version = "1", features = ["preserve_order"] }
 notify = "8"
 dirs = "6"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = { version = "0.25", features = ["elcapitan"] }
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

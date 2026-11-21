@@ -24,6 +24,8 @@ export const api = {
   openLogin: () => invoke<void>("open_login"),
   openInClaudeApp: (kind: "plugin" | "plugins" | "directory" | "chat" | "add-marketplace", value?: string | null, plugin?: string | null) =>
     invoke<void>("open_in_claude_app", { kind, value: value ?? null, plugin: plugin ?? null }),
+  installInClaudeApp: (name: string, sourceUrl: string | null) => invoke<"added" | "already">("install_in_claude_app", { name, repo: sourceUrl }),
+  openAccessibilitySettings: () => invoke<void>("open_accessibility_settings"),
   getGuide: (id: string, version: string | null) => invoke<Guide | null>("get_guide", { id, version }),
   generateGuide: (args: { id: string; surface?: Surface | null; version?: string | null; name?: string | null; description?: string | null }) =>
     invoke<Guide>("generate_guide", {

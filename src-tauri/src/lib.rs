@@ -2,6 +2,8 @@ mod catalog;
 mod claude_app;
 mod cli;
 mod guide;
+#[cfg(target_os = "macos")]
+mod mac_ax;
 mod model;
 mod paths;
 mod rules;
@@ -280,6 +282,16 @@ async fn ai_status() -> Result<AiStatus, String> {
 }
 
 #[tauri::command]
+async fn install_in_claude_app(name: String, repo: Option<String>) -> Result<String, String> {
+    blocking(move || claude_app::auto_install(&name, repo.as_deref())).await
+}
+
+#[tauri::command]
+fn open_accessibility_settings() -> Result<(), String> {
+    claude_app::open_accessibility_settings()
+}
+
+#[tauri::command]
 fn open_in_claude_app(kind: String, value: Option<String>, plugin: Option<String>) -> Result<(), String> {
     claude_app::open(&kind, value.as_deref(), plugin.as_deref())
 }
@@ -387,6 +399,8 @@ pub fn run() {
             ai_status,
             open_login,
             open_in_claude_app,
+            install_in_claude_app,
+            open_accessibility_settings,
             get_guide,
             generate_guide,
             read_readme,
