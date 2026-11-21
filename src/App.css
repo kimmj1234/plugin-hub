@@ -302,3 +302,27 @@ button.link.danger { color: var(--err); }
 .diet-list li:last-child { border-bottom: 0; }
 .tiny { font-size: 11px; margin: 8px 0 0; }
 details.note summary { cursor: pointer; }
+
+/* 메뉴 구조 (4개 + 내 플러그인 하위 탭) */
+.nav-label { display: inline-flex; align-items: center; gap: 9px; }
+.nav-label svg { opacity: .75; flex-shrink: 0; }
+.sidebar nav button.active .nav-label svg { opacity: 1; color: var(--accent); }
+.brand { display: flex; align-items: center; gap: 8px; }
+.brand .logo { border-radius: 5px; }
+.stack { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.stack-body { flex: 1; min-height: 0; overflow: auto; }
+.stack-body > .split { height: 100%; }
+.subnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+.subnav button { border: none; background: none; border-radius: 0; padding: 8px 12px 10px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+.subnav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.subnav button:hover { color: var(--text); }
+details.fold { margin: 8px 0 4px; }
+details.fold > summary { cursor: pointer; font-size: 13px; padding: 6px 0; }
+
+/* 명령어 모음 (플러그인별 한국어) */
+.ko-status { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; }
+.ko-cta { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); border-radius: 10px; margin: 8px 0 12px; }
+.ko-cmds .cmd-desc { font-size: 14px; }
+.cmd-usage { font-size: 13px; margin-top: 4px; }
+.cmd-usage strong { margin-right: 6px; color: var(--accent); font-weight: 600; }
+.cmd-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }

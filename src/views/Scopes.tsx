@@ -46,7 +46,7 @@ export function Scopes() {
   return (
     <div className="split">
       <div className="pane list-pane">
-        <h3 className="pane-title">적용 범위</h3>
+        <h3 className="pane-title">작업 폴더</h3>
         <p className="muted small">플러그인을 PC 전체에 쓸지, 특정 작업 폴더에서만 쓸지 정합니다.</p>
         <div className={`folder ${selected === PC ? "active" : ""}`} onClick={() => setSelected(PC)}>
           <span className="folder-label">🖥️ PC 전체 기본값</span>

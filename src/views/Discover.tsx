@@ -258,7 +258,7 @@ export function Discover() {
             {pendingDone ? (
               <>
                 <strong>✅ {pending.search} 설치 완료</strong>
-                <p className="small">Claude 앱에 설치된 것을 확인했습니다. '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다.</p>
+                <p className="small">Claude 앱에 설치된 것을 확인했습니다. '내 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다.</p>
                 <button onClick={() => setPending(null)}>닫기</button>
               </>
             ) : (
@@ -412,7 +412,7 @@ export function Discover() {
             </div>
             <div className="actions">
               {installedOn(selected, surface) ? (
-                <span className="badge ok">{SURFACE_LABEL[surface]}에 설치됨 · '설치된 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
+                <span className="badge ok">{SURFACE_LABEL[surface]}에 설치됨 · '내 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
               ) : surface === "cli" ? (
                 selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => openConfirm(selected)}>설치</button>
               ) : (
@@ -429,7 +429,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "'Claude 앱에 설치'를 누르면 Plugin Hub가 Claude 앱 디렉터리에서 이 플러그인을 찾아 추가하고, Claude 앱이 바로 내려받습니다. 처음 한 번은 macOS '손쉬운 사용' 권한을 허용해야 합니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
+                ? "'Claude 앱에 설치'를 누르면 Plugin Hub가 Claude 앱 디렉터리에서 이 플러그인을 찾아 추가하고, Claude 앱이 바로 내려받습니다. 처음 한 번은 macOS '손쉬운 사용' 권한을 허용해야 합니다. 설치 후 '내 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

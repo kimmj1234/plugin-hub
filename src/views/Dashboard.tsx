@@ -91,33 +91,71 @@ function Diet({ go }: { go: (v: "installed") => void }) {
   );
 }
 
-export function Dashboard({ go }: { go: (v: "installed" | "scopes" | "commands" | "discover" | "diagnostics" | "settings") => void }) {
-  const { snap } = useHub();
+export type HomeTarget = "plugins" | "discover";
+
+export function Dashboard({ go }: { go: (v: HomeTarget) => void }) {
+  const { snap, refresh } = useHub();
   if (!snap) return null;
   const { env } = snap;
   const cli = snap.plugins.filter((p) => p.surface === "cli");
   const desk = snap.plugins.filter((p) => p.surface === "desktop");
   const problems = snap.diagnostics.filter((d) => d.severity !== "info");
+  const infos = snap.diagnostics.filter((d) => d.severity === "info");
 
   return (
     <div className="page">
-      <h1>대시보드</h1>
+      <h1>홈</h1>
 
-      <Diet go={go} />
+      {snap.settingsError && <div className="note bad">{snap.settingsError}</div>}
 
+      <Diet go={() => go("plugins")} />
+
+      <h2>
+        점검 결과
+        <button className="link" onClick={refresh}>다시 검사</button>
+      </h2>
+      <p className="muted small">
+        설정 파일이 바뀔 때마다 자동으로 다시 검사합니다. 마지막 검사: {new Date(snap.scannedAt).toLocaleTimeString()}
+      </p>
+      {problems.length === 0 ? (
+        <div className="note ok">고쳐야 할 문제가 없습니다.</div>
+      ) : (
+        problems.map((d) => <DiagnosticItem key={d.id} d={d} />)
+      )}
+      {infos.length > 0 && (
+        <details className="fold">
+          <summary>참고할 안내 {infos.length}건 (업데이트, 자동 실행 훅 등)</summary>
+          {infos.map((d) => <DiagnosticItem key={d.id} d={d} />)}
+        </details>
+      )}
+      <details className="fold">
+        <summary className="muted">어떤 것을 검사하나요? (규칙 14개)</summary>
+        <ul className="plain small">
+          <li>켜져 있지만 설치되지 않은 플러그인 (설정 찌꺼기) — 자동 정리</li>
+          <li>설치 폴더가 사라졌거나 plugin.json이 손상된 플러그인 — 다시 설치</li>
+          <li>출처 마켓플레이스가 등록되어 있지 않은 플러그인</li>
+          <li>마켓플레이스에 새 버전이 있는 플러그인 — 업데이트</li>
+          <li>같은 플러그인이 여러 마켓플레이스에서 동시에 켜진 경우</li>
+          <li>여러 플러그인에 같은 이름의 스킬·명령이 있어 충돌할 수 있는 경우</li>
+          <li>켜진 플러그인이 너무 많아 매 세션 컨텍스트 비용이 커지는 경우</li>
+          <li>세션마다 스크립트를 자동 실행하는 훅이 있는 플러그인</li>
+          <li>Claude 앱과 터미널 양쪽에서 같은 플러그인을 켠 경우</li>
+          <li>settings.json·폴더 설정 파일 형식 오류, 설치 기록을 읽을 수 없는 경우</li>
+          <li>등록한 폴더가 사라졌거나, 폴더 설정에서만 켜지고 설치되지 않은 플러그인</li>
+        </ul>
+      </details>
+
+      <h2>이 Mac의 Claude</h2>
       <div className="cards">
         <div className="card">
-          <div className="card-label">터미널 · Claude Code CLI</div>
+          <div className="card-label">터미널 · Claude Code</div>
           {env.terminalCli ? (
-            <>
-              <div className="card-value ok">설치됨 {env.terminalCli.version && `v${env.terminalCli.version}`}</div>
-              <div className="muted mono small">{env.terminalCli.path}</div>
-            </>
+            <div className="card-value ok">설치됨 {env.terminalCli.version && `v${env.terminalCli.version}`}</div>
           ) : (
             <>
-              <div className="card-value dim">터미널용 CLI 없음</div>
+              <div className="card-value dim">터미널용 없음</div>
               <div className="muted small">
-                {env.activeCli ? "설치·업데이트는 Claude 앱 내장 Claude Code로 실행합니다." : "설치 기능을 쓰려면 Claude Code나 Claude 앱이 필요합니다."}
+                {env.activeCli ? "설치·업데이트는 Claude 앱에 들어 있는 Claude Code로 합니다." : "설치하려면 Claude Code나 Claude 앱이 필요합니다."}
               </div>
             </>
           )}
@@ -125,31 +163,17 @@ export function Dashboard({ go }: { go: (v: "installed" | "scopes" | "commands" 
             플러그인 {cli.length}개 · 켜짐 {cli.filter((p) => p.enabled).length}개
           </div>
         </div>
-
         <div className="card">
-          <div className="card-label">Claude 앱 (데스크톱)</div>
-          {env.desktopInstalled ? (
-            <>
-              <div className="card-value ok">설치됨</div>
-              <div className="muted small">
-                내장 Claude Code {env.desktopBundledVersions[0] ? `v${env.desktopBundledVersions[0]}` : "없음"}
-              </div>
-            </>
-          ) : (
-            <div className="card-value dim">설치되지 않음</div>
-          )}
+          <div className="card-label">Claude 앱</div>
+          {env.desktopInstalled ? <div className="card-value ok">설치됨</div> : <div className="card-value dim">설치되지 않음</div>}
           <div className="card-foot">
-            계정 동기화 플러그인 {desk.length}개 · 켜짐 {desk.filter((p) => p.enabled).length}개
+            계정 플러그인 {desk.length}개 · 켜짐 {desk.filter((p) => p.enabled).length}개
           </div>
         </div>
-
-        <div className="card clickable" onClick={() => go("diagnostics")}>
-          <div className="card-label">진단</div>
-          <div className={`card-value ${problems.length ? "bad" : "ok"}`}>
-            {problems.length ? `문제 ${problems.length}건` : "문제 없음"}
-          </div>
-          <div className="muted small">설정 파일이 바뀔 때마다 자동으로 다시 검사합니다.</div>
-          <div className="card-foot">안내 {snap.diagnostics.length - problems.length}건</div>
+        <div className="card clickable" onClick={() => go("discover")}>
+          <div className="card-label">새 플러그인</div>
+          <div className="card-value">찾아보기 →</div>
+          <div className="muted small">용도별 인기 플러그인과 한국어 설명</div>
         </div>
       </div>
 
@@ -159,32 +183,6 @@ export function Dashboard({ go }: { go: (v: "installed" | "scopes" | "commands" 
         </summary>
         터미널과 Claude 앱의 Code 탭은 같은 <code className="mono">{env.claudeHome}</code> 설정을 함께 씁니다. Claude 앱의 채팅·Cowork 플러그인은 계정에 동기화되어 따로 관리됩니다.
       </details>
-
-      {snap.settingsError && <div className="note bad">{snap.settingsError}</div>}
-
-      <h2>
-        확인이 필요한 항목
-        <button className="link" onClick={() => go("diagnostics")}>모두 보기</button>
-      </h2>
-      {problems.length === 0 ? (
-        <p className="muted">오류나 경고가 없습니다.</p>
-      ) : (
-        problems.slice(0, 5).map((d) => <DiagnosticItem key={d.id} d={d} />)
-      )}
-
-      <h2>
-        마켓플레이스 {snap.marketplaces.length}개
-        <button className="link" onClick={() => go("discover")}>플러그인 찾기</button>
-      </h2>
-      <ul className="plain">
-        {snap.marketplaces.map((m) => (
-          <li key={m.name}>
-            <strong>{m.name}</strong> <span className="muted">{m.source}</span>{" "}
-            <span className="badge">{m.pluginCount}개</span>
-          </li>
-        ))}
-        {snap.marketplaces.length === 0 && <li className="muted">등록된 마켓플레이스가 없습니다.</li>}
-      </ul>
     </div>
   );
 }

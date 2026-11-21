@@ -422,3 +422,16 @@ fn usage_real_readonly() {
     let r = crate::usage::scan(&names, 30);
     println!("{:?} in {:?}", r, t.elapsed());
 }
+
+/// 실제 계정으로 한국어 가이드를 만들어 앱 데이터 폴더에 저장한다 (PLUGIN_ID 필요, ~/.claude는 읽기만).
+#[test]
+#[ignore]
+fn guide_real_generate() {
+    let id = std::env::var("PLUGIN_ID").expect("PLUGIN_ID");
+    let s = scanner::scan(&[]);
+    let p = s.plugins.iter().find(|p| p.id == id && p.surface == "cli").expect("설치된 플러그인");
+    let dir = dirs::data_dir().unwrap().join("dev.kimmj1234.pluginhub");
+    let t = std::time::Instant::now();
+    let g = crate::guide::generate(&dir, &p.id, p.version.as_deref(), &crate::guide::context_from_plugin(p)).unwrap();
+    println!("{:?}\n{:#?}", t.elapsed(), g);
+}

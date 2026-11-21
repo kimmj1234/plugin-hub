@@ -9,7 +9,7 @@ const SCOPES: { value: InstallScope; label: string; desc: string }[] = [
 ];
 
 export function Settings() {
-  const { prefs, setPrefs, projects, addProject } = useHub();
+  const { prefs, setPrefs, projects, addProject, snap } = useHub();
 
   const pickAndSet = async () => {
     const path = await api.pickFolder();
@@ -86,8 +86,21 @@ export function Settings() {
       </section>
 
       <section className="settings-block">
+        <h2>등록된 마켓플레이스</h2>
+        <p className="muted small">플러그인을 받아 오는 곳입니다. 새 마켓플레이스는 '플러그인 찾기'에서 추가합니다.</p>
+        <ul className="plain small">
+          {snap?.marketplaces.map((m) => (
+            <li key={m.name}>
+              <strong>{m.name}</strong> <span className="muted">{m.source}</span> <span className="badge">{m.pluginCount}개</span>
+            </li>
+          ))}
+          {snap && snap.marketplaces.length === 0 && <li className="muted">등록된 마켓플레이스가 없습니다.</li>}
+        </ul>
+      </section>
+
+      <section className="settings-block">
         <h2>등록한 작업 폴더</h2>
-        <p className="muted small">폴더별 적용 설정은 '적용 범위' 화면에서 합니다.</p>
+        <p className="muted small">폴더별 적용 설정은 '내 플러그인 → 폴더별 적용'에서 합니다.</p>
         <ul className="plain small">
           {projects.map((p) => <li key={p.path}>📁 {p.name} <span className="muted mono">{p.path}</span></li>)}
           {projects.length === 0 && <li className="muted">아직 없습니다.</li>}
