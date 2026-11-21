@@ -45,13 +45,28 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+    use std::io::Write;
     let target = if path.is_symlink() { fs::canonicalize(path).map_err(|e| e.to_string())? } else { path.to_path_buf() };
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let name = target.file_name().unwrap_or_default().to_string_lossy();
     let tmp = target.with_file_name(format!(".{name}.pluginhub-{}-{}.tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
-    if let Err(e) = fs::write(&tmp, content) {
+    let mut opts = fs::OpenOptions::new();
+    // create_new: 미리 만들어 둔 같은 이름의 링크를 따라가 다른 파일을 덮어쓰지 않는다
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        // 원래 파일 권한을 유지한다 (예: API 키가 든 0600 settings.json이 0644로 바뀌지 않게)
+        let mode = fs::metadata(&target).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
+        opts.mode(mode);
+    }
+    let result = opts.open(&tmp).and_then(|mut f| {
+        f.write_all(content.as_bytes())?;
+        f.sync_all()
+    });
+    if let Err(e) = result {
         let _ = fs::remove_file(&tmp);
         return Err(format!("쓰기 실패: {e}"));
     }
@@ -59,6 +74,22 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         format!("저장 실패: {e}")
     })
+}
+
+/// 폴더(프로젝트) 설정 파일 경로. `.claude` 폴더나 설정 파일이 링크로 프로젝트 밖(예: ~/.claude/settings.json)을
+/// 가리키면 거부한다. 내려받은 저장소에 심어 둔 링크로 다른 설정 파일이 바뀌는 것을 막는다.
+pub fn project_settings_checked(project: &Path, local: bool) -> Result<std::path::PathBuf, String> {
+    let root = fs::canonicalize(project).map_err(|e| format!("폴더를 찾을 수 없습니다: {e}"))?;
+    let file = paths::project_settings(project, local);
+    for p in [file.parent().map(Path::to_path_buf), Some(file.clone())].into_iter().flatten() {
+        if fs::symlink_metadata(&p).is_ok() {
+            let real = fs::canonicalize(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            if !real.starts_with(&root) {
+                return Err(format!("{}가 폴더 밖({})을 가리키는 링크라서 수정하지 않습니다.", p.display(), real.display()));
+            }
+        }
+    }
+    Ok(file)
 }
 
 pub fn set_enabled(id: &str, enabled: Option<bool>, backup_dir: &Path) -> Result<(), String> {

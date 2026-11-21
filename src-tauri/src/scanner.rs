@@ -12,12 +12,46 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn read_json(p: &Path) -> Result<Value, String> {
-    let s = fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+/// 파일 크기 상한 (바이트)
+pub const MAX_CONFIG_BYTES: u64 = 32 * 1024 * 1024; // 사용자·Claude가 쓰는 설정 파일
+pub const MAX_PLUGIN_JSON_BYTES: u64 = 1024 * 1024; // 외부 플러그인이 넣은 JSON
+pub const MAX_PLUGIN_TEXT_BYTES: u64 = 256 * 1024; // 외부 플러그인의 SKILL.md·명령 문서
+pub const MAX_README_BYTES: u64 = 200 * 1024;
+
+/// 크기를 제한해 읽는다. `allow_symlink`가 false면 심볼릭 링크·장치 파일·폴더를 거부한다.
+/// 외부 플러그인 파일이 /dev/zero 같은 장치나 거대한 파일, 또는 ~/.ssh 같은 다른 파일을 가리키는 링크여도
+/// 앱이 멈추거나 그 내용이 화면·AI 프롬프트로 새어 나가지 않게 한다.
+pub fn read_limited(p: &Path, max: u64, allow_symlink: bool) -> Result<String, String> {
+    use std::io::Read;
+    let meta = if allow_symlink { fs::metadata(p) } else { fs::symlink_metadata(p) }.map_err(|e| format!("{}: {e}", p.display()))?;
+    if !meta.is_file() {
+        return Err(format!("{}: 일반 파일이 아닙니다", p.display()));
+    }
+    if meta.len() > max {
+        return Err(format!("{}: 파일이 너무 큽니다 ({}바이트 초과)", p.display(), max));
+    }
+    let mut buf = Vec::new();
+    fs::File::open(p)
+        .and_then(|f| f.take(max).read_to_end(&mut buf))
+        .map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn parse_json(p: &Path, s: &str) -> Result<Value, String> {
     if s.trim().is_empty() {
         return Ok(Value::Object(Map::new()));
     }
-    serde_json::from_str(&s).map_err(|e| format!("{} 형식 오류: {e}", p.display()))
+    serde_json::from_str(s).map_err(|e| format!("{} 형식 오류: {e}", p.display()))
+}
+
+/// 사용자·Claude가 관리하는 설정 파일 (dotfiles 관리용 심볼릭 링크 허용)
+pub fn read_json(p: &Path) -> Result<Value, String> {
+    parse_json(p, &read_limited(p, MAX_CONFIG_BYTES, true)?)
+}
+
+/// 외부 플러그인·마켓플레이스가 제공한 JSON (링크 거부, 1MB 제한)
+pub fn read_plugin_json(p: &Path) -> Result<Value, String> {
+    parse_json(p, &read_limited(p, MAX_PLUGIN_JSON_BYTES, false)?)
 }
 
 fn str_of(v: &Value, key: &str) -> Option<String> {
@@ -109,10 +143,10 @@ fn md_components(dir: &Path, nested_file: Option<&str>) -> Vec<Component> {
             ),
             _ => continue,
         };
-        if !file.is_file() {
-            continue;
-        }
-        let fm = fs::read_to_string(&file).ok().and_then(|t| parse_frontmatter(&t));
+        let fm = match read_limited(&file, MAX_PLUGIN_TEXT_BYTES, false) {
+            Ok(t) => parse_frontmatter(&t),
+            Err(_) => continue,
+        };
         out.push(match fm {
             Some(f) => Component {
                 name: f.name.unwrap_or(fallback),
@@ -141,7 +175,7 @@ pub fn components(root: &Path, manifest: &Value) -> Components {
         agents: md_components(&root.join("agents"), None),
         ..Default::default()
     };
-    if let Ok(h) = read_json(&root.join("hooks").join("hooks.json")) {
+    if let Ok(h) = read_plugin_json(&root.join("hooks").join("hooks.json")) {
         if let Some(m) = h.get("hooks").and_then(|x| x.as_object()) {
             c.hooks = m.keys().cloned().collect();
         }
@@ -154,7 +188,7 @@ pub fn components(root: &Path, manifest: &Value) -> Components {
         }
     }
     let mut mcp: Vec<String> = Vec::new();
-    if let Ok(m) = read_json(&root.join(".mcp.json")) {
+    if let Ok(m) = read_plugin_json(&root.join(".mcp.json")) {
         let servers = m.get("mcpServers").unwrap_or(&m);
         if let Some(o) = servers.as_object() {
             mcp.extend(o.keys().cloned());
@@ -175,7 +209,7 @@ struct ManifestInfo {
 }
 
 fn manifest(root: &Path) -> ManifestInfo {
-    match read_json(&root.join(".claude-plugin").join("plugin.json")) {
+    match read_plugin_json(&root.join(".claude-plugin").join("plugin.json")) {
         Ok(v) if v.is_object() => ManifestInfo { ok: true, value: v },
         _ => ManifestInfo {
             ok: false,
@@ -205,6 +239,20 @@ pub struct SettingsInfo {
     pub extra_marketplaces: HashSet<String>,
     pub error: Option<String>,
     pub installed_error: Option<String>,
+    /// settings.json 또는 설치 기록이 방금 바뀌었는가
+    pub recently_changed: bool,
+}
+
+/// 공식 CLI는 설치할 때 settings.json(켜짐)을 먼저 쓰고, 설치 기록은 몇 초 뒤에 쓴다(실측 약 2.8초).
+/// 그 사이에 검사하면 "켜져 있지만 설치되지 않음"으로 잘못 보이므로, 최근에 바뀐 파일은 잠시 기다린다.
+pub const INSTALL_GRACE_SECS: u64 = 30;
+
+pub fn changed_within(p: &Path, secs: u64) -> bool {
+    fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|d| d.as_secs() < secs)
 }
 
 pub fn read_settings() -> SettingsInfo {
@@ -214,6 +262,7 @@ pub fn read_settings() -> SettingsInfo {
         extra_marketplaces: HashSet::new(),
         error: None,
         installed_error: None,
+        recently_changed: changed_within(&p, INSTALL_GRACE_SECS),
     };
     if !p.exists() {
         return info;
@@ -273,7 +322,7 @@ fn read_marketplaces() -> (Vec<Marketplace>, HashMap<String, String>) {
         let mut count = 0;
         if let Some(l) = &loc {
             let mf = PathBuf::from(l).join(".claude-plugin").join("marketplace.json");
-            if let Ok(mv) = read_json(&mf) {
+            if let Ok(mv) = read_plugin_json(&mf) {
                 if let Some(arr) = mv.get("plugins").and_then(|x| x.as_array()) {
                     count = arr.len();
                     for p in arr {
@@ -508,6 +557,8 @@ pub fn project_states(projects: &[ProjectFolder]) -> Vec<ProjectState> {
                 local,
                 shared_error,
                 local_error,
+                recently_changed: changed_within(&paths::project_settings(dir, false), INSTALL_GRACE_SECS)
+                    || changed_within(&paths::project_settings(dir, true), INSTALL_GRACE_SECS),
             }
         })
         .collect()

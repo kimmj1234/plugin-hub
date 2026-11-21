@@ -222,6 +222,9 @@ pub struct ProjectState {
     pub local: std::collections::BTreeMap<String, bool>,
     pub shared_error: Option<String>,
     pub local_error: Option<String>,
+    /// 폴더 설정 파일이 방금 바뀌었는가 (설치 중 잠깐 생기는 불일치를 오류로 보지 않기 위해)
+    #[serde(skip)]
+    pub recently_changed: bool,
 }
 
 fn default_scope() -> String {

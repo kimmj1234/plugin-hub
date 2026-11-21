@@ -85,6 +85,13 @@ impl El {
         unsafe { AXUIElementPerformAction(self.0, a.as_concrete_TypeRef()) == 0 }
     }
 
+    fn parent(&self) -> Option<El> {
+        let v = self.raw("AXParent")?;
+        let r = v.as_CFTypeRef();
+        unsafe { CFRetain(r) };
+        Some(El(r))
+    }
+
     fn texts(&self, depth: usize, out: &mut Vec<String>) {
         if depth > 6 {
             return;
@@ -178,21 +185,39 @@ fn is_search_field(e: &El) -> bool {
     ph.contains("플러그인") || ph.contains("plugin")
 }
 
-fn link_matches(e: &El, name: &str, repo: Option<&str>) -> bool {
+fn link_named(e: &El, name: &str) -> bool {
     if e.role() != "AXLink" {
         return false;
     }
-    let label = e.label();
     let n = name.to_lowercase();
-    let l = label.to_lowercase();
-    let named = l == n || l == format!("{n} 보기") || l == format!("view {n}") || l == format!("{n} view");
-    if !named {
-        return false;
+    let l = e.label().to_lowercase();
+    l == n || l == format!("{n} 보기") || l == format!("view {n}") || l == format!("{n} view")
+}
+
+/// 검색 결과에서 누를 링크를 고른다. 저장소가 표시된 결과는 저장소까지 같아야 하고,
+/// 저장소 표시가 없으면 같은 이름이 하나뿐일 때만 고른다 (같은 이름의 다른 플러그인을 잘못 누르지 않게).
+fn pick_link(found: Vec<El>, repo: Option<&str>) -> Result<Option<El>, String> {
+    let mut exact = Vec::new();
+    let mut unlabeled = Vec::new();
+    for e in found {
+        let mut texts = vec![];
+        e.texts(0, &mut texts);
+        let repos: Vec<&String> = texts.iter().filter(|t| t.contains('/')).collect();
+        match repo {
+            Some(r) if repos.iter().any(|t| t.eq_ignore_ascii_case(r)) => exact.push(e),
+            Some(_) if repos.is_empty() => unlabeled.push(e),
+            Some(_) => {}
+            None => unlabeled.push(e),
+        }
     }
-    let Some(repo) = repo else { return true };
-    let mut texts = vec![];
-    e.texts(0, &mut texts);
-    texts.iter().any(|t| t.eq_ignore_ascii_case(repo)) || !texts.iter().any(|t| t.contains('/'))
+    if let Some(e) = exact.into_iter().next() {
+        return Ok(Some(e));
+    }
+    match unlabeled.len() {
+        0 => Ok(None),
+        1 => Ok(unlabeled.pop()),
+        _ => Err("같은 이름의 플러그인이 여러 개 있어 자동으로 고르지 않았습니다. Claude 앱 디렉터리에서 직접 골라 주세요.".into()),
+    }
 }
 
 const ADD: &[&str] = &["추가", "Add"];
@@ -203,7 +228,24 @@ enum Page {
     Added,
 }
 
-fn detail_page(root: &El) -> Option<Page> {
+/// 버튼에서 위로 올라가며, 가까운 조상 영역에 플러그인 이름이 제목처럼 적혀 있는지 본다.
+fn near_name(e: &El, name: &str) -> bool {
+    let mut cur = e.parent();
+    for _ in 0..6 {
+        let Some(p) = cur else { return false };
+        let mut texts = vec![];
+        p.texts(0, &mut texts);
+        if texts.iter().any(|t| t.trim().eq_ignore_ascii_case(name)) {
+            return true;
+        }
+        cur = p.parent();
+    }
+    false
+}
+
+/// 플러그인 상세 화면의 "추가" 버튼(또는 이미 추가됨 표시)을 찾는다.
+/// 이름 근처에 있는 버튼만 인정하고, 후보가 정확히 하나일 때만 누른다.
+fn detail_page(root: &El, name: &str) -> Result<Option<Page>, String> {
     let hits = find_all(root, &|e| match e.role().as_str() {
         "AXButton" => {
             let l = e.label();
@@ -212,10 +254,29 @@ fn detail_page(root: &El) -> Option<Page> {
         "AXStaticText" => ADDED.contains(&e.text("AXValue").as_str()),
         _ => false,
     });
-    if hits.iter().any(|e| e.role() == "AXStaticText" || ADDED.contains(&e.label().as_str())) {
-        return Some(Page::Added);
+    let near: Vec<El> = hits.into_iter().filter(|e| near_name(e, name)).collect();
+    if near.iter().any(|e| e.role() == "AXStaticText" || ADDED.contains(&e.label().as_str())) {
+        return Ok(Some(Page::Added));
     }
-    hits.into_iter().next().map(Page::Add)
+    match near.len() {
+        0 => Ok(None),
+        1 => Ok(near.into_iter().next().map(Page::Add)),
+        _ => Err("추가 버튼이 여러 개라 자동으로 누르지 않았습니다. Claude 앱에서 직접 추가해 주세요.".into()),
+    }
+}
+
+/// wait_for와 같지만, 판정 중 오류가 나면 바로 멈춘다.
+fn wait_result<T>(timeout: Duration, mut f: impl FnMut() -> Result<Option<T>, String>) -> Result<Option<T>, String> {
+    let end = Instant::now() + timeout;
+    loop {
+        if let Some(v) = f()? {
+            return Ok(Some(v));
+        }
+        if Instant::now() > end {
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
 }
 
 pub enum Outcome {
@@ -238,23 +299,22 @@ pub fn install(name: &str, repo: Option<&str>, open_directory: impl Fn() -> Resu
     std::thread::sleep(Duration::from_millis(300));
     post_text(pid, name)?;
 
-    let link = wait_for(Duration::from_secs(15), || {
-        let found = find_all(&app, &|e| link_matches(e, name, repo));
-        (found.len() >= 1).then(|| found.into_iter().next()).flatten()
-    })
-    .ok_or_else(|| format!("Claude 앱 검색 결과에서 '{name}'을(를) 찾지 못했습니다."))?;
+    let link = wait_result(Duration::from_secs(15), || pick_link(find_all(&app, &|e| link_named(e, name)), repo))?
+        .ok_or_else(|| format!("Claude 앱 검색 결과에서 '{name}'을(를) 찾지 못했습니다."))?;
     if !link.press() {
         return Err("검색 결과를 열지 못했습니다.".into());
     }
+    // 화면이 상세 페이지로 넘어갈 때까지(검색 결과 링크가 사라질 때까지) 기다린 뒤에 버튼을 찾는다.
+    let _ = wait_for(Duration::from_secs(10), || find_all(&app, &|e| link_named(e, name)).is_empty().then_some(()));
 
-    let button = match wait_for(Duration::from_secs(15), || detail_page(&app)).ok_or("플러그인 화면에서 추가 버튼을 찾지 못했습니다.")? {
+    let button = match wait_result(Duration::from_secs(15), || detail_page(&app, name))?.ok_or("플러그인 화면에서 추가 버튼을 찾지 못했습니다.")? {
         Page::Added => return Ok(Outcome::AlreadyAdded),
         Page::Add(b) => b,
     };
     if !button.press() {
         return Err("추가 버튼을 누르지 못했습니다.".into());
     }
-    let confirmed = wait_for(Duration::from_secs(15), || matches!(detail_page(&app), Some(Page::Added)).then_some(()));
+    let confirmed = wait_for(Duration::from_secs(15), || matches!(detail_page(&app, name), Ok(Some(Page::Added))).then_some(()));
     if confirmed.is_none() {
         return Err("추가 버튼을 눌렀지만 완료 표시가 나오지 않았습니다. Claude 앱에 확인 창이 떴는지 봐 주세요.".into());
     }

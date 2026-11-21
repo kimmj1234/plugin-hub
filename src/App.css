@@ -326,3 +326,12 @@ details.fold > summary { cursor: pointer; font-size: 13px; padding: 6px 0; }
 .cmd-usage { font-size: 13px; margin-top: 4px; }
 .cmd-usage strong { margin-right: 6px; color: var(--accent); font-weight: 600; }
 .cmd-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+
+/* 플러그인 찾기 필터 (간소화) */
+.find-bar { flex-wrap: nowrap; }
+.find-bar .search { flex: 1; min-width: 0; }
+.find-bar select { max-width: 150px; }
+.filter-toggle.active { border-color: var(--accent); color: var(--accent); }
+.filter-more { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.active-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
+.fresh-link { display: block; margin: 0 0 6px; font-size: 12px; }

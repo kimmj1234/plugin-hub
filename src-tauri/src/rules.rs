@@ -26,6 +26,18 @@ fn diag(
     }
 }
 
+/// 설치가 진행 중일 수 있는 상태. 잠시 뒤 다시 검사해 그래도 없으면 오류로 바뀐다.
+fn installing(id: &str) -> Diagnostic {
+    diag(
+        format!("installing:{id}"),
+        "info",
+        Some(id),
+        format!("{id}: 설치를 마무리하는 중입니다"),
+        "방금 켜졌고 설치 기록은 아직 쓰이는 중입니다. 잠시 뒤 자동으로 다시 확인합니다.".into(),
+        None,
+    )
+}
+
 pub fn evaluate(
     plugins: &[Plugin],
     settings: &SettingsInfo,
@@ -65,6 +77,10 @@ pub fn evaluate(
         }
         for (id, on) in pr.shared.iter().chain(pr.local.iter()) {
             if *on && settings.installed_error.is_none() && !installed_ids.contains(id.as_str()) {
+                if pr.recently_changed {
+                    out.push(installing(id));
+                    continue;
+                }
                 out.push(diag(
                     format!("project-dangling:{}:{id}", pr.path),
                     "warning",
@@ -108,7 +124,9 @@ pub fn evaluate(
     let cli: Vec<&Plugin> = plugins.iter().filter(|p| p.surface == "cli").collect();
 
     for p in &cli {
-        if p.enabled && !p.installed && settings.installed_error.is_none() {
+        if p.enabled && !p.installed && settings.installed_error.is_none() && settings.recently_changed {
+            out.push(installing(&p.id));
+        } else if p.enabled && !p.installed && settings.installed_error.is_none() {
             out.push(diag(
                 format!("dangling:{}", p.id),
                 "error",

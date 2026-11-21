@@ -70,7 +70,7 @@ fn from_cli() -> Result<Vec<CatalogEntry>, String> {
 fn installed_entry(id: &str, e: &Value) -> CatalogEntry {
     let (name, marketplace) = id.split_once('@').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or((id.to_string(), String::new()));
     let man = s(e, "installPath")
-        .and_then(|p| read_json(&Path::new(&p).join(".claude-plugin/plugin.json")).ok())
+        .and_then(|p| crate::scanner::read_plugin_json(&Path::new(&p).join(".claude-plugin/plugin.json")).ok())
         .unwrap_or(Value::Null);
     let repo = match man.get("repository") {
         Some(Value::String(u)) => Some(u.clone()),

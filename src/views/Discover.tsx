@@ -46,6 +46,7 @@ export function Discover() {
   const [mktSource, setMktSource] = useState("");
   const [surface, setSurfaceState] = useState<Surface>(loadSurface);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const setSurface = (s: Surface) => {
     setSurfaceState(s);
     setSelectedId(null);
@@ -242,6 +243,7 @@ export function Discover() {
   };
 
   const catList = [...CATEGORIES, OTHER].filter((c) => catCounts.get(c.id));
+  const extraActive = Number(filter !== "all") + Number(!!mkt);
 
   return (
     <div className="split">
@@ -249,7 +251,7 @@ export function Discover() {
         <div className="seg surface-seg" role="tablist" aria-label="설치 대상">
           {(["cli", "desktop"] as Surface[]).map((s) => (
             <button key={s} role="tab" aria-selected={surface === s} className={surface === s ? "active" : ""} onClick={() => setSurface(s)}>
-              {s === "cli" ? "💻 터미널·Claude Code" : "🖥️ Claude 앱"} <span className="count">{installedCount(s)}개 설치</span>
+              {s === "cli" ? "터미널·Claude Code" : "Claude 앱"} <span className="count">{installedCount(s)}개 설치</span>
             </button>
           ))}
         </div>
@@ -319,47 +321,56 @@ export function Discover() {
             )}
           </div>
         )}
-        <p className="muted small surface-help">
-          {surface === "cli"
-            ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
-            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱에서 검색·추가·내려받기까지 자동으로 진행되고 여기에 표시됩니다."}
-        </p>
-
-        <div className="toolbar">
-          <input className="search" autoFocus placeholder="이름·용도로 검색 (한국어 가능: 배포, 테스트, 디자인…)" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button onClick={() => refreshCatalog(true)} disabled={catalogLoading} title="마켓플레이스 원본까지 다시 받아 새 플러그인·업데이트를 확인합니다">
-            {catalogLoading ? "확인 중…" : "새로 확인"}
-          </button>
-        </div>
-
-        <div className="chips" role="tablist" aria-label="용도별 분류">
-          <button className={`chip ${cat === "all" ? "active" : ""}`} onClick={() => setCat("all")}>전체 <span className="count">{rows.length.toLocaleString()}</span></button>
-          {catList.map((c) => (
-            <button key={c.id} className={`chip ${cat === c.id ? "active" : ""}`} onClick={() => setCat(c.id)}>
-              {c.icon} {c.label} <span className="count">{catCounts.get(c.id)}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="toolbar small-row">
-          <div className="seg">
-            <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>모두</button>
-            <button className={filter === "fresh" ? "active" : ""} onClick={() => setFilter("fresh")}>새로 생김·업데이트 {freshCount > 0 && <span className="count bad">{freshCount}</span>}</button>
-            <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>설치됨</button>
-          </div>
+        <div className="toolbar find-bar">
+          <input className="search" autoFocus placeholder="하고 싶은 일로 검색 (예: 배포)" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="분야">
+            <option value="all">모든 분야</option>
+            {catList.map((c) => (
+              <option key={c.id} value={c.id}>{c.icon} {c.label} ({catCounts.get(c.id)})</option>
+            ))}
+          </select>
           <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="정렬">
-            <option value="popular">인기순 (GitHub ★)</option>
+            <option value="popular">인기순</option>
             <option value="new">최근 추가순</option>
             <option value="name">이름순</option>
           </select>
-          <select value={mkt} onChange={(e) => setMkt(e.target.value)} aria-label="마켓플레이스">
-            <option value="">모든 마켓플레이스</option>
-            {markets.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <button className={`filter-toggle ${moreOpen || extraActive ? "active" : ""}`} onClick={() => setMoreOpen(!moreOpen)} aria-expanded={moreOpen}>
+            필터{extraActive ? ` ${extraActive}` : ""}
+          </button>
         </div>
 
+        {moreOpen && (
+          <div className="filter-more">
+            <div className="seg">
+              <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>모두</button>
+              <button className={filter === "fresh" ? "active" : ""} onClick={() => setFilter("fresh")}>새로 생김·업데이트{freshCount > 0 && <span className="count bad">{freshCount}</span>}</button>
+              <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>설치됨</button>
+            </div>
+            <select value={mkt} onChange={(e) => setMkt(e.target.value)} aria-label="마켓플레이스">
+              <option value="">모든 마켓플레이스</option>
+              {markets.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button onClick={() => refreshCatalog(true)} disabled={catalogLoading} title="마켓플레이스 원본까지 다시 받아 새 플러그인·업데이트를 확인합니다">
+              {catalogLoading ? "확인 중…" : "새로 확인"}
+            </button>
+          </div>
+        )}
+
+        {(cat !== "all" || extraActive > 0 || q) && (
+          <div className="active-filters">
+            {q && <button className="chip active" onClick={() => setQuery("")}>“{query.trim()}” ✕</button>}
+            {cat !== "all" && <button className="chip active" onClick={() => setCat("all")}>{categoryById(cat).label} ✕</button>}
+            {filter !== "all" && <button className="chip active" onClick={() => setFilter("all")}>{filter === "fresh" ? "새로 생김·업데이트" : "설치됨"} ✕</button>}
+            {mkt && <button className="chip active" onClick={() => setMkt("")}>{mkt} ✕</button>}
+            <button className="link" onClick={() => { setQuery(""); setCat("all"); setFilter("all"); setMkt(""); }}>모두 지우기</button>
+          </div>
+        )}
+        {!moreOpen && filter === "all" && freshCount > 0 && (
+          <button className="link fresh-link" onClick={() => setFilter("fresh")}>새 플러그인·업데이트 {freshCount}개 보기</button>
+        )}
+
         <div className="muted small status-line">
-          {catalog && `${sorted.length.toLocaleString()}개`}
+          {catalog && `${sorted.length.toLocaleString()}개 · ${surface === "cli" ? "터미널·Code 탭에 바로 설치" : "Claude 앱 채팅·Cowork용, '앱에 설치'로 자동 설치"}`}
           {catalog && ` · ${new Date(catalog.fetchedAt).toLocaleTimeString()} 갱신 · ${prefs.remoteRefreshMinutes > 0 ? `${prefs.remoteRefreshMinutes >= 60 ? `${prefs.remoteRefreshMinutes / 60}시간` : `${prefs.remoteRefreshMinutes}분`}마다 자동 확인` : "자동 확인 꺼짐"}`}
           {catalog?.origin === "local-cache" && " · CLI가 없어 로컬 캐시를 보여줍니다 (설치 불가)"}
         </div>

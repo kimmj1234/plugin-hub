@@ -1,7 +1,26 @@
 import { Fragment, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+const MAX_SOURCE = 200_000;
+const MAX_INLINE = 10_000;
+
+// HTML 주석을 정규식 없이 지운다. `<!--`만 잔뜩 있고 닫히지 않는 README로 화면이 멈추는 것(정규식 DoS)을 막는다.
+export function stripComments(src: string): string {
+  let out = "";
+  let pos = 0;
+  for (;;) {
+    const start = src.indexOf("<!--", pos);
+    if (start < 0) return out + src.slice(pos);
+    out += src.slice(pos, start);
+    const end = src.indexOf("-->", start + 4);
+    if (end < 0) return out; // 닫히지 않은 주석 뒤는 버린다
+    pos = end + 3;
+  }
+}
+
 function inline(text: string, key: string): ReactNode[] {
+  // 아주 긴 한 줄은 꾸밈 없이 보여 준다 (정규식이 오래 걸리는 입력 방지)
+  if (text.length > MAX_INLINE) return [text];
   const out: ReactNode[] = [];
   const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))/g;
   let last = 0;
@@ -33,7 +52,7 @@ function inline(text: string, key: string): ReactNode[] {
 }
 
 export function Markdown({ source }: { source: string }) {
-  const lines = source.replace(/<!--[\s\S]*?-->/g, "").split("\n");
+  const lines = stripComments(source.slice(0, MAX_SOURCE)).split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
   let key = 0;

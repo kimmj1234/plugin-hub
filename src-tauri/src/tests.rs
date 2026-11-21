@@ -58,6 +58,17 @@ fn scan_rules_and_toggle_on_fake_home() {
         r#"{"theme":"dark","enabledPlugins":{"a@mk":true,"b@mk":true,"ghost@mk":true},"other":1}"#,
     );
 
+    // 방금 쓴 settings.json: 공식 CLI가 설치 기록을 쓰기 전 상태와 같다 → 오류가 아니라 "설치 마무리 중"
+    let fresh = scanner::scan(&[]);
+    let fresh_ids: Vec<&str> = fresh.diagnostics.iter().map(|d| d.id.as_str()).collect();
+    assert!(fresh_ids.contains(&"installing:ghost@mk"), "설치 직후에는 오류 대신 진행 중 안내");
+    assert!(!fresh_ids.contains(&"dangling:ghost@mk"), "설치 직후 빨간 오류가 뜨면 안 됨");
+    assert_eq!(fresh.diagnostics.iter().find(|d| d.id == "installing:ghost@mk").unwrap().severity, "info");
+
+    // 시간이 지나도 설치 기록이 없으면 진짜 오류다
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(scanner::INSTALL_GRACE_SECS + 5);
+    fs::File::options().write(true).open(home.join("settings.json")).unwrap().set_modified(old).unwrap();
+
     let snap = scanner::scan(&[]);
     let ids: Vec<&str> = snap.diagnostics.iter().map(|d| d.id.as_str()).collect();
     println!("{ids:#?}");
@@ -107,6 +118,11 @@ fn scan_rules_and_toggle_on_fake_home() {
     settings::set_enabled_in(&shared, "a@mk", Some(false), &backups).unwrap();
     settings::set_enabled_in(&local, "a@mk", Some(true), &backups).unwrap();
     settings::set_enabled_in(&shared, "nothere@mk", Some(true), &backups).unwrap();
+    let snap = scanner::scan(&[folder.clone()]);
+    assert!(snap.diagnostics.iter().any(|d| d.id == "installing:nothere@mk"), "폴더 설정도 방금 바뀌었으면 설치 진행 중으로 본다");
+    for f in [&shared, &local] {
+        fs::File::options().write(true).open(f).unwrap().set_modified(old).unwrap();
+    }
     let snap = scanner::scan(&[folder.clone()]);
     let st = &snap.projects[0];
     assert!(st.exists);
@@ -434,4 +450,106 @@ fn guide_real_generate() {
     let t = std::time::Instant::now();
     let g = crate::guide::generate(&dir, &p.id, p.version.as_deref(), &crate::guide::context_from_plugin(p)).unwrap();
     println!("{:?}\n{:#?}", t.elapsed(), g);
+}
+
+/// 실제 공식 CLI로 격리된 폴더에 설치하면서 50ms마다 검사해, 설치 도중 빨간 오류(dangling)가 한 번도 나오지 않는지 확인한다.
+/// CLI_BIN(claude 실행 파일)과 PLUGIN_ID가 필요하다. 실제 ~/.claude는 건드리지 않는다.
+#[test]
+#[ignore]
+fn install_race_real() {
+    let bin = std::env::var("CLI_BIN").expect("CLI_BIN");
+    let id = std::env::var("PLUGIN_ID").expect("PLUGIN_ID");
+    let home = temp_dir("race");
+    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
+    let mut child = std::process::Command::new(&bin)
+        .args(["plugin", "install", &id, "-s", "user", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &home)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let (mut scans, mut installing_seen, mut dangling_seen) = (0, 0, 0);
+    loop {
+        let done = child.try_wait().unwrap().is_some();
+        let s = scanner::scan(&[]);
+        scans += 1;
+        if s.diagnostics.iter().any(|d| d.id.starts_with("dangling:")) {
+            dangling_seen += 1;
+        }
+        if s.diagnostics.iter().any(|d| d.id.starts_with("installing:")) {
+            installing_seen += 1;
+        }
+        if done {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let s = scanner::scan(&[]);
+    let installed = s.plugins.iter().any(|p| p.id == id && p.installed && p.enabled);
+    println!("scans={scans} installing_seen={installing_seen} dangling_seen={dangling_seen} installed={installed}");
+    let _ = fs::remove_dir_all(&home);
+    assert!(installed, "설치 완료");
+    assert_eq!(dangling_seen, 0, "설치 도중 빨간 오류가 나오면 안 됨");
+}
+
+#[test]
+fn security_defenses() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let d = temp_dir("sec");
+
+    // 1) 외부 플러그인 파일: 링크·장치·거대 파일 거부
+    let secret = d.join("secret.txt");
+    write(secret.clone(), "PRIVATE KEY");
+    let plugin = d.join("plugin");
+    fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
+    symlink(&secret, plugin.join("README.md")).unwrap();
+    assert!(scanner::read_limited(&plugin.join("README.md"), scanner::MAX_README_BYTES, false).is_err(), "README 링크로 다른 파일을 읽으면 안 됨");
+    symlink("/dev/zero", plugin.join(".claude-plugin/plugin.json")).unwrap();
+    assert!(scanner::read_plugin_json(&plugin.join(".claude-plugin/plugin.json")).is_err(), "/dev/zero 링크 거부");
+    assert!(scanner::read_limited(std::path::Path::new("/dev/zero"), 1024, true).is_err(), "장치 파일 거부");
+    let big = d.join("big.json");
+    fs::write(&big, vec![b' '; (scanner::MAX_PLUGIN_JSON_BYTES + 10) as usize]).unwrap();
+    assert!(scanner::read_plugin_json(&big).is_err(), "1MB 넘는 플러그인 JSON 거부");
+    // 사용자 설정 파일은 dotfiles 링크를 허용
+    let real_settings = d.join("dotfiles-settings.json");
+    write(real_settings.clone(), r#"{"a":1}"#);
+    symlink(&real_settings, d.join("settings-link.json")).unwrap();
+    assert_eq!(scanner::read_json(&d.join("settings-link.json")).unwrap()["a"], 1);
+
+    // 2) 설정 저장 시 원래 권한 유지 (0600 → 0600)
+    let s = d.join("settings.json");
+    write(s.clone(), "{}");
+    fs::set_permissions(&s, fs::Permissions::from_mode(0o600)).unwrap();
+    settings::write_atomic(&s, r#"{"x":1}"#).unwrap();
+    assert_eq!(fs::metadata(&s).unwrap().permissions().mode() & 0o777, 0o600, "권한이 넓어지면 안 됨");
+    assert_eq!(fs::read_to_string(&s).unwrap(), r#"{"x":1}"#);
+
+    // 3) 프로젝트의 .claude가 밖을 가리키는 링크면 쓰기 거부
+    let proj = d.join("cloned-repo");
+    fs::create_dir_all(&proj).unwrap();
+    let outside = d.join("victim");
+    fs::create_dir_all(&outside).unwrap();
+    symlink(&outside, proj.join(".claude")).unwrap();
+    assert!(settings::project_settings_checked(&proj, true).is_err(), ".claude 링크 탈출 거부");
+    let proj2 = d.join("repo2");
+    fs::create_dir_all(proj2.join(".claude")).unwrap();
+    symlink(&s, proj2.join(".claude/settings.local.json")).unwrap();
+    assert!(settings::project_settings_checked(&proj2, true).is_err(), "설정 파일 링크 탈출 거부");
+    let proj3 = d.join("repo3");
+    fs::create_dir_all(&proj3).unwrap();
+    assert!(settings::project_settings_checked(&proj3, false).is_ok(), "정상 폴더는 허용");
+
+    // 4) 작업 폴더로 등록하면 안 되는 위치
+    assert!(crate::paths::forbidden_project(std::path::Path::new("/System/Library")).is_some());
+    assert!(crate::paths::forbidden_project(std::path::Path::new("/etc")).is_some());
+    let home = fs::canonicalize(crate::paths::home()).unwrap();
+    assert!(crate::paths::forbidden_project(&home).is_some());
+    assert!(crate::paths::forbidden_project(&home.join("Library/Application Support")).is_some());
+    assert!(crate::paths::forbidden_project(&home.join(".ssh")).is_some());
+    assert!(crate::paths::forbidden_project(&home.join("Project/my-app")).is_none(), "일반 프로젝트는 허용");
+    assert!(crate::paths::forbidden_project(std::path::Path::new("/Volumes/Ext/code/app")).is_none(), "외장 디스크 프로젝트 허용");
+
+    // 5) 가이드 프롬프트 길이 제한
+    assert_eq!(crate::guide::truncate(&"가".repeat(50_000), crate::guide::CONTEXT_LIMIT).len() <= crate::guide::CONTEXT_LIMIT, true);
+    let _ = fs::remove_dir_all(&d);
 }

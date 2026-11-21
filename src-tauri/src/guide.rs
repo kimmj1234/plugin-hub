@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const README_LIMIT: usize = 6000;
+/// 외부 플러그인이 넣은 설명 한 항목의 최대 길이와 전체 맥락의 최대 길이.
+/// 너무 긴 프롬프트는 명령 인자 한도(약 1MB)를 넘어 실행이 실패하고, 비용만 커진다.
+const FIELD_LIMIT: usize = 500;
+pub const CONTEXT_LIMIT: usize = 30_000;
 
 fn cache_file(dir: &Path, id: &str, version: Option<&str>) -> PathBuf {
     let safe: String = format!("{id}-{}", version.unwrap_or("na"))
@@ -51,7 +55,7 @@ pub fn status() -> AiStatus {
     }
 }
 
-fn truncate(s: &str, n: usize) -> &str {
+pub fn truncate(s: &str, n: usize) -> &str {
     if s.len() <= n {
         return s;
     }
@@ -65,7 +69,7 @@ fn truncate(s: &str, n: usize) -> &str {
 pub fn context_from_plugin(p: &Plugin) -> String {
     let mut s = format!(
         "플러그인 이름: {}\n식별자: {}\n설명: {}\n",
-        p.display_name, p.id, p.description
+        truncate(&p.display_name, 100), p.id, truncate(&p.description, FIELD_LIMIT * 2)
     );
     let section = |title: &str, items: &[crate::model::Component], slash: bool| -> String {
         if items.is_empty() {
@@ -78,7 +82,7 @@ pub fn context_from_plugin(p: &Plugin) -> String {
             if let Some(h) = &c.argument_hint {
                 t.push_str(&format!(" {h}"));
             }
-            t.push_str(&format!(" — {}", c.description));
+            t.push_str(&format!(" — {}", truncate(&c.description, FIELD_LIMIT)));
             if !c.user_invocable {
                 t.push_str(" (사용자가 직접 부를 수 없음, 자동 호출 전용)");
             }
@@ -86,7 +90,7 @@ pub fn context_from_plugin(p: &Plugin) -> String {
                 t.push_str(" (자동 호출 안 됨, 직접 입력 전용)");
             }
             if !c.examples.is_empty() {
-                t.push_str(&format!(" / 예시 요청: {}", c.examples.join(" | ")));
+                t.push_str(&format!(" / 예시 요청: {}", truncate(&c.examples.join(" | "), FIELD_LIMIT)));
             }
             t.push('\n');
         }
@@ -103,7 +107,7 @@ pub fn context_from_plugin(p: &Plugin) -> String {
     }
     if let Some(dir) = &p.install_path {
         for name in ["README.md", "readme.md"] {
-            if let Ok(t) = fs::read_to_string(Path::new(dir).join(name)) {
+            if let Ok(t) = crate::scanner::read_limited(&Path::new(dir).join(name), crate::scanner::MAX_README_BYTES, false) {
                 s.push_str(&format!("\n[README 앞부분]\n{}\n", truncate(&t, README_LIMIT)));
                 break;
             }
@@ -137,7 +141,7 @@ fn extract_json(text: &str) -> Option<Value> {
 pub fn generate(dir: &Path, id: &str, version: Option<&str>, context: &str) -> Result<Guide, String> {
     let work = dir.join("guide-workdir");
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    let prompt = format!("{INSTRUCTIONS}{context}");
+    let prompt = format!("{INSTRUCTIONS}{}", truncate(context, CONTEXT_LIMIT));
     let r = cli::run_in(
         &work,
         &[

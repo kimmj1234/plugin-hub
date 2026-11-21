@@ -81,7 +81,7 @@ async fn set_enabled(
     }
     let dir = allowed_project(&app, project_path.as_deref().unwrap_or(""))?;
     blocking(move || {
-        settings::set_enabled_in(&paths::project_settings(&dir, scope == "local"), &id, Some(enabled), &backups)
+        settings::set_enabled_in(&settings::project_settings_checked(&dir, scope == "local")?, &id, Some(enabled), &backups)
     })
     .await
 }
@@ -100,7 +100,7 @@ async fn set_folder_enabled(
     }
     let dir = allowed_project(&app, &project_path)?;
     let backups = data_dir(&app)?.join("backups");
-    blocking(move || settings::set_enabled_in(&paths::project_settings(&dir, scope == "local"), &id, value, &backups)).await
+    blocking(move || settings::set_enabled_in(&settings::project_settings_checked(&dir, scope == "local")?, &id, value, &backups)).await
 }
 
 #[tauri::command]
@@ -221,13 +221,15 @@ fn show_main(app: &AppHandle) {
 
 #[tauri::command]
 fn add_project(app: AppHandle, path: String) -> Result<HubState, String> {
-    let dir = PathBuf::from(&path);
-    if !dir.is_absolute() || !dir.is_dir() {
+    let raw = PathBuf::from(&path);
+    if !raw.is_absolute() || !raw.is_dir() {
         return Err(format!("폴더가 아닙니다: {path}"));
     }
-    if dir == paths::home() || dir.parent().is_none() {
-        return Err("홈 폴더나 최상위 폴더는 등록할 수 없습니다. 작업하는 프로젝트 폴더를 고르세요.".into());
+    let dir = std::fs::canonicalize(&raw).map_err(|e| format!("폴더를 확인하지 못했습니다: {e}"))?;
+    if let Some(reason) = paths::forbidden_project(&dir) {
+        return Err(reason.into());
     }
+    let path = dir.to_string_lossy().to_string();
     let data = data_dir(&app)?;
     let mut st = store::load(&data);
     if !st.projects.iter().any(|p| p.path == path) {
@@ -364,8 +366,8 @@ async fn generate_guide(
             None => (
                 format!(
                     "플러그인 이름: {}\n식별자: {id}\n설명: {}\n(아직 설치되지 않아 구성 요소 정보가 없다. 설명만으로 요약하고 commands는 빈 배열로 둔다.)\n",
-                    name.unwrap_or_else(|| id.clone()),
-                    description.unwrap_or_default()
+                    guide::truncate(name.as_deref().unwrap_or(&id), 100),
+                    guide::truncate(description.as_deref().unwrap_or_default(), 2000)
                 ),
                 version,
             ),
@@ -391,7 +393,7 @@ async fn read_readme(id: String, surface: String) -> Result<Option<String>, Stri
         };
         for name in ["README.md", "readme.md", "README.MD"] {
             let f = PathBuf::from(dir).join(name);
-            if let Ok(text) = std::fs::read_to_string(&f) {
+            if let Ok(text) = scanner::read_limited(&f, scanner::MAX_README_BYTES, false) {
                 let mut t = text;
                 if t.len() > 200_000 {
                     let mut cut = 200_000;

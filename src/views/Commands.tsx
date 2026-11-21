@@ -11,6 +11,14 @@ function key(s: string): string {
   return s.trim().split(/\s/)[0].replace(/^\//, "").split(":").pop()!.toLowerCase();
 }
 
+// AI가 외부 플러그인 설명으로 만든 예시는 그대로 믿지 않는다. "예시로 입력"은 이 명령으로 시작하고
+// 주소·셸 기호가 없는 짧은 문장일 때만 허용한다 (README에 심은 문장이 채팅 입력창에 들어가지 않게).
+export function safeExample(example: string | undefined, call: string): boolean {
+  if (!example) return false;
+  const t = example.trim();
+  return t.length <= 300 && (t === call || t.startsWith(`${call} `)) && !/https?:|www\.|[`$|;&<>\\]/i.test(t) && !/[\r\n]/.test(t);
+}
+
 function directItems(p: Plugin): SlashItem[] {
   return slashItems(p).filter((s) => s.kind === "command" || s.comp.userInvocable);
 }
@@ -139,7 +147,7 @@ function PluginCommands({ p }: { p: Plugin }) {
 
       {guide ? (
         <div className="ko-status">
-          <span className="badge ai">AI 한국어 설명</span>
+          <span className="badge ai" title="플러그인 제작자가 쓴 설명을 AI가 한국어로 옮긴 것입니다. 실제 동작은 원문과 다를 수 있습니다.">AI 한국어 설명</span>
           <span className="muted small">{new Date(guide.generatedAt).toLocaleDateString()} 생성</span>
           <button className="link" disabled={working} onClick={generate}>{working ? "다시 만드는 중…" : "다시 만들기"}</button>
         </div>
@@ -185,8 +193,8 @@ function PluginCommands({ p }: { p: Plugin }) {
                 <button className="primary" disabled={!p.enabled} onClick={() => send(insert)} title={inApp ? "Claude 앱 새 채팅 입력창에 이 명령을 넣습니다 (보내기는 직접)" : "복사한 뒤 붙여 넣을 곳을 안내합니다"}>
                   {inApp ? "바로 입력" : "복사해서 입력"}
                 </button>
-                {g?.example?.trim().startsWith("/") && inApp && (
-                  <button disabled={!p.enabled} onClick={() => send(g.example)}>예시로 입력</button>
+                {safeExample(g?.example, s.call) && inApp && (
+                  <button disabled={!p.enabled} onClick={() => send(g!.example)}>예시로 입력</button>
                 )}
                 <CopyButton text={s.call} />
               </div>

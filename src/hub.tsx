@@ -44,6 +44,9 @@ interface HubCtx {
 
 export const USAGE_DAYS = 30;
 
+const CONFIRM_MS = 3000;
+const INSTALLING_RECHECK_MS = 5000;
+
 const DEFAULT_PREFS: Prefs = { defaultInstallScope: "user", defaultInstallProject: null, remoteRefreshMinutes: 30, autoUpdatePlugins: false, launchAtLogin: false };
 
 
@@ -64,6 +67,9 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState<Record<string, string>>({});
   const seenDiag = useRef<Set<string> | null>(null);
+  const pendingDiag = useRef<Map<string, number>>(new Map());
+  const recheckTimer = useRef<number | undefined>(undefined);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
   const seenApp = useRef<Set<string> | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -89,13 +95,37 @@ export function HubProvider({ children }: { children: ReactNode }) {
     try {
       const s = await api.scan();
       if (seq !== scanSeq.current) return;
+      // 새 문제는 바로 알리지 않고 몇 초 뒤 다시 검사해서도 남아 있을 때만 알린다.
+      // (설치·삭제 도중 파일이 차례로 바뀌는 순간에 생기는 일시적인 불일치를 걸러낸다)
       const important = s.diagnostics.filter((d) => d.severity !== "info");
-      if (seenDiag.current) {
-        for (const d of important) {
-          if (!seenDiag.current.has(d.id)) toast(d.severity === "error" ? "error" : "warning", `새로 감지됨: ${d.title}`);
+      const now = Date.now();
+      const confirmed = new Set<string>();
+      let recheck = false;
+      for (const d of important) {
+        if (!seenDiag.current || seenDiag.current.has(d.id)) {
+          confirmed.add(d.id);
+          continue;
+        }
+        const first = pendingDiag.current.get(d.id);
+        if (first === undefined) {
+          pendingDiag.current.set(d.id, now);
+          recheck = true;
+        } else if (now - first >= CONFIRM_MS) {
+          toast(d.severity === "error" ? "error" : "warning", `새로 감지됨: ${d.title}`);
+          confirmed.add(d.id);
+          pendingDiag.current.delete(d.id);
+        } else {
+          recheck = true;
         }
       }
-      seenDiag.current = new Set(important.map((d) => d.id));
+      const present = new Set(important.map((d) => d.id));
+      for (const id of [...pendingDiag.current.keys()]) if (!present.has(id)) pendingDiag.current.delete(id);
+      seenDiag.current = confirmed;
+      const installing = s.diagnostics.some((d) => d.id.startsWith("installing:"));
+      if (recheck || installing) {
+        clearTimeout(recheckTimer.current);
+        recheckTimer.current = window.setTimeout(() => refreshRef.current(), installing ? INSTALLING_RECHECK_MS : CONFIRM_MS + 500);
+      }
       const appNow = s.plugins.filter((p) => p.surface === "desktop");
       if (seenApp.current) {
         for (const p of appNow) if (!seenApp.current.has(p.id)) toast("ok", `Claude 앱에 설치됨: ${p.displayName}`);
@@ -109,6 +139,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [toast]);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     refresh();

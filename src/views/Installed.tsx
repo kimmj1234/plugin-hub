@@ -29,6 +29,7 @@ export function Installed() {
     (p) => (surface === "desktop" || inFolder(p)) && (!q || `${p.displayName} ${p.id} ${p.description}`.toLowerCase().includes(q)),
   );
   const current = plugins.find((p) => p.id === selected) ?? null;
+  const installingIds = new Set(snap?.diagnostics.filter((d) => d.id.startsWith("installing:")).map((d) => d.pluginId));
   const problemIds = new Set(snap?.diagnostics.filter((d) => d.severity !== "info" && surface === "cli").map((d) => d.pluginId));
 
   const addGroup = () => {
@@ -118,7 +119,7 @@ export function Installed() {
                 {(koDescription(p.id) || p.description) && <div className="pl-desc">{koDescription(p.id) || p.description}</div>}
                 <div className="pl-sub">
                   {!p.installed ? (
-                    <span className="bad-text">설치되지 않음</span>
+                    installingIds.has(p.id) ? <span className="spinner-text">설치 마무리 중…</span> : <span className="bad-text">설치되지 않음</span>
                   ) : (
                     <>
                       <span title="매 세션 컨텍스트에 들어가는 양(추정)">~{formatTokens(alwaysOnTokens(p))} 토큰</span>
