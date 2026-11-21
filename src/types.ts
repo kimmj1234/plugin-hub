@@ -99,6 +99,7 @@ export interface CatalogEntry {
   sourceUrl: string | null;
   installable: boolean;
   directoryId: string | null;
+  appName: string | null;
   surfaces: string[];
   isNew: boolean;
   updated: boolean;

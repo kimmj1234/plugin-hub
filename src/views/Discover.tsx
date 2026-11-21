@@ -43,6 +43,7 @@ export function Discover() {
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
   const [surface, setSurfaceState] = useState<Surface>(loadSurface);
+  const [pending, setPending] = useState<{ entry: CatalogEntry; search: string; copied: boolean } | null>(null);
   const setSurface = (s: Surface) => {
     setSurfaceState(s);
     setSelectedId(null);
@@ -57,7 +58,8 @@ export function Discover() {
   const cliIds = useMemo(() => new Set(snap?.plugins.filter((p) => p.surface === "cli" && p.installed).map((p) => p.id)), [snap]);
   const appPlugins = useMemo(() => snap?.plugins.filter((p) => p.surface === "desktop") ?? [], [snap]);
   const appNames = useMemo(() => new Set(appPlugins.flatMap((p) => [p.displayName.toLowerCase(), p.id.toLowerCase()])), [appPlugins]);
-  const inApp = (e: CatalogEntry) => appNames.has(e.name.toLowerCase()) || appNames.has(e.pluginId.toLowerCase());
+  const inApp = (e: CatalogEntry) =>
+    appNames.has(e.name.toLowerCase()) || appNames.has(e.pluginId.toLowerCase()) || (!!e.appName && appNames.has(e.appName.toLowerCase()));
   const installedOn = (e: CatalogEntry, s: Surface) => (s === "cli" ? cliIds.has(e.pluginId) : inApp(e));
   const other: Surface = surface === "cli" ? "desktop" : "cli";
   const appMarkets = useMemo(() => new Set([DIRECTORY, ...appPlugins.map((p) => p.marketplace)]), [appPlugins]);
@@ -76,6 +78,7 @@ export function Discover() {
         sourceUrl: p.repository ?? p.homepage,
         installable: false,
         directoryId: null,
+        appName: null,
         surfaces: ["cowork", "claude_ai"],
         isNew: false,
         updated: false,
@@ -97,14 +100,16 @@ export function Discover() {
   const installedCount = (s: Surface) => (s === "cli" ? cliIds.size : appPlugins.length);
 
   const installInApp = async (e: CatalogEntry) => {
+    const search = e.appName || e.name;
+    const copied = await navigator.clipboard.writeText(search).then(() => true, () => false);
+    setPending({ entry: e, search, copied });
     try {
-      await navigator.clipboard.writeText(e.name).catch(() => undefined);
       await api.openInClaudeApp("plugins");
-      toast("info", `Claude 앱 플러그인 화면을 열었습니다. 이름 '${e.name}'을 복사해 두었으니 검색에 붙여 넣고(⌘V) 설치하세요. 설치하면 여기에 바로 반영됩니다.`);
     } catch (err) {
       toast("error", errorText(err));
     }
   };
+  const pendingDone = pending ? inApp(pending.entry) : false;
 
   const catCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -226,6 +231,31 @@ export function Discover() {
             </button>
           ))}
         </div>
+        {pending && (
+          <div className={`note install-guide ${pendingDone ? "ok" : ""}`} role="status">
+            {pendingDone ? (
+              <>
+                <strong>✅ {pending.search} 설치 완료</strong>
+                <p className="small">Claude 앱에 설치된 것을 확인했습니다. '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다.</p>
+                <button onClick={() => setPending(null)}>닫기</button>
+              </>
+            ) : (
+              <>
+                <strong>Claude 앱에서 '{pending.search}' 설치하기</strong>
+                <ol className="small">
+                  <li>열린 Claude 앱 '플러그인' 화면 위쪽 <strong>검색</strong>칸을 누릅니다.</li>
+                  <li>{pending.copied ? <>이름이 복사되어 있으니 <kbd>⌘V</kbd>로 붙여 넣습니다.</> : <>'<strong>{pending.search}</strong>'을 입력합니다.</>}</li>
+                  <li>결과에서 <strong>{pending.search}</strong>를 눌러 <strong>설치</strong>합니다.</li>
+                </ol>
+                <p className="muted small">설치되면 이 안내가 자동으로 '설치 완료'로 바뀝니다.</p>
+                <div className="row">
+                  <button onClick={() => installInApp(pending.entry)}>Claude 앱 다시 열기</button>
+                  <button className="link" onClick={() => setPending(null)}>취소</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <p className="muted small surface-help">
           {surface === "cli"
             ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
@@ -336,7 +366,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 플러그인 화면이 열리고 플러그인 이름이 복사됩니다. 검색에 붙여 넣고 '설치'를 누르면 끝나고, 설치되면 이 화면에 바로 표시됩니다. 앱 플러그인은 계정에 연결되어 있어 마지막 설치 확인은 보안상 Claude 앱에서 합니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
+                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 플러그인 화면이 열리고, Claude 앱 검색에 맞는 이름이 복사됩니다. 왼쪽 위 안내대로 붙여 넣고 '설치'를 누르면 되고, 설치되면 안내가 자동으로 '설치 완료'로 바뀝니다. 앱 플러그인은 계정에 연결되어 있어 마지막 설치 확인은 보안상 Claude 앱에서 합니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

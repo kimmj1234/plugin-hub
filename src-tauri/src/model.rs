@@ -117,6 +117,7 @@ pub struct CatalogEntry {
     pub source_url: Option<String>,
     pub installable: bool,
     pub directory_id: Option<String>,
+    pub app_name: Option<String>,
     pub surfaces: Vec<String>,
     #[serde(flatten)]
     pub change: CatalogChange,

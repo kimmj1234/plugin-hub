@@ -49,6 +49,7 @@ fn from_cli() -> Result<Vec<CatalogEntry>, String> {
                 source_url: e.get("source").and_then(source_url),
                 installable: true,
                 directory_id: None,
+                app_name: None,
                 surfaces: Vec::new(),
                 change: CatalogChange::default(),
                 plugin_id: id,
@@ -85,6 +86,7 @@ fn installed_entry(id: &str, e: &Value) -> CatalogEntry {
         source_url: repo.or_else(|| s(&man, "homepage")),
         installable: true,
         directory_id: None,
+        app_name: None,
         surfaces: Vec::new(),
         change: CatalogChange::default(),
     }
@@ -111,6 +113,7 @@ fn from_local_cache() -> Vec<CatalogEntry> {
                             .and_then(|r| s(r, "url")),
                         installable: false,
                         directory_id: None,
+                        app_name: None,
                         surfaces: Vec::new(),
                         change: CatalogChange::default(),
                         name,
@@ -121,7 +124,7 @@ fn from_local_cache() -> Vec<CatalogEntry> {
         .unwrap_or_default()
 }
 
-pub fn directory_index() -> HashMap<String, (String, Vec<String>)> {
+pub fn directory_index() -> HashMap<String, (String, Vec<String>, Option<String>)> {
     let mut out = HashMap::new();
     let Ok(v) = read_json(&paths::plugin_directory_cache()) else {
         return out;
@@ -138,9 +141,10 @@ pub fn directory_index() -> HashMap<String, (String, Vec<String>)> {
             .and_then(|x| x.as_array())
             .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
             .unwrap_or_default();
-        let name = names.get(&id).cloned().or_else(|| s(l, "name")).unwrap_or_default().to_lowercase();
+        let display = s(l, "name");
+        let name = names.get(&id).cloned().or_else(|| display.clone()).unwrap_or_default().to_lowercase();
         if !name.is_empty() {
-            out.insert(name, (id, surfaces));
+            out.insert(name, (id, surfaces, display));
         }
     }
     out
@@ -150,9 +154,10 @@ fn attach_directory_info(entries: &mut [CatalogEntry]) {
     let idx = directory_index();
     for e in entries.iter_mut().filter(|e| e.marketplace == paths::DIRECTORY_MARKETPLACE) {
         let key = e.plugin_id.split('@').next().unwrap_or(&e.name).to_lowercase();
-        if let Some((id, surfaces)) = idx.get(&key) {
+        if let Some((id, surfaces, display)) = idx.get(&key) {
             e.directory_id = Some(id.clone());
             e.surfaces = surfaces.clone();
+            e.app_name = display.clone();
         }
     }
 }

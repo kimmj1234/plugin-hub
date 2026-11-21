@@ -158,7 +158,7 @@ const catalogEntries: CatalogEntry[] = [
   marketplace: "anthropic-plugin-directory",
   version,
   sourceUrl: url ?? (name === "superpowers" ? "https://github.com/obra/superpowers" : "https://github.com/anthropics/claude-plugins-official"),
-  installable: true, directoryId: null, surfaces: ["claude_code", "cowork", "claude_ai"],
+  installable: true, directoryId: null, appName: null, surfaces: ["claude_code", "cowork", "claude_ai"],
   isNew: i === 11,
   updated: i === 4,
   firstSeen: i === 11 ? Date.now() : 0,

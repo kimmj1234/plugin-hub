@@ -154,6 +154,9 @@ fn real_scan() {
         let with_id = c.entries.iter().filter(|e| e.directory_id.is_some()).count();
         let app = c.entries.iter().filter(|e| e.surfaces.iter().any(|s| s == "cowork" || s == "claude_ai")).count();
         println!("catalog {} entries, directory id {with_id}, app usable {app}", c.entries.len());
+        for e in c.entries.iter().filter(|e| ["unity", "superpowers", "frontend-design", "feature-dev"].contains(&e.name.as_str())) {
+            println!("  {} -> app name {:?}", e.name, e.app_name);
+        }
     }
     let _ = fs::remove_dir_all(&data);
 }
@@ -191,6 +194,7 @@ fn tracks_new_and_updated_catalog_entries() {
         source_url: None,
         installable: true,
         directory_id: None,
+        app_name: None,
         surfaces: Vec::new(),
         change: CatalogChange::default(),
     };
