@@ -117,7 +117,7 @@ export function Discover() {
         } catch {
           toast("info", `검색창에 '${search}'를 입력하세요.`);
         }
-        await api.openInClaudeApp("plugins");
+        await api.openInClaudeApp("directory");
       }
     } catch (err) {
       toast("error", errorText(err));
@@ -263,8 +263,8 @@ export function Discover() {
                   </ol>
                 ) : (
                   <ol className="small">
-                    <li>Claude 앱의 플러그인 화면이 열렸습니다. 위쪽 <strong>검색</strong>창을 누르고 <strong>⌘V</strong>로 붙여 넣습니다. (<strong>{pending.search}</strong>가 복사되어 있습니다)</li>
-                    <li>검색 결과에서 <strong>{pending.search}</strong>를 누르고 <strong>추가</strong>를 누릅니다.</li>
+                    <li>Claude 앱의 <strong>디렉터리</strong>가 열리고 검색창에 커서가 있습니다. <strong>⌘V</strong>로 붙여 넣습니다. (<strong>{pending.search}</strong>가 복사되어 있습니다)</li>
+                    <li>검색 결과의 <strong>{pending.search}</strong>를 누르고 <strong>추가</strong>(또는 오른쪽 <strong>+</strong>)를 누릅니다.</li>
                   </ol>
                 )}
                 <p className="muted small">Claude 앱 안에서 바로 내려받아 설치되고, 끝나면 이 안내가 자동으로 '설치 완료'로 바뀝니다. 브라우저는 열리지 않습니다.</p>
@@ -279,7 +279,7 @@ export function Discover() {
         <p className="muted small surface-help">
           {surface === "cli"
             ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
-            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱이 열리고, 앱 안에서 '추가'를 누르면 바로 설치되어 여기에 표시됩니다."}
+            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱의 디렉터리가 열리고, 붙여 넣어 검색한 뒤 '추가'를 누르면 바로 설치되어 여기에 표시됩니다."}
         </p>
 
         <div className="toolbar">
@@ -386,7 +386,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 플러그인 화면이 열립니다. 앱 안에서 '추가'를 누르면 바로 내려받아 설치됩니다. 앱 플러그인은 계정에 연결되어 있어 마지막 '추가'는 보안상 사용자가 직접 누릅니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
+                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 디렉터리가 열립니다. 앱 안에서 '추가'를 누르면 바로 내려받아 설치됩니다. 앱 플러그인은 계정에 연결되어 있어 마지막 '추가'는 보안상 사용자가 직접 누릅니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

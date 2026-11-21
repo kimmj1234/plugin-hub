@@ -325,6 +325,7 @@ fn builds_claude_app_links_safely() {
     assert!(url_for("chat", Some("  ")).is_err());
     assert!(url_for("chat", Some(&"가".repeat(8001))).is_err());
     assert!(url_for("other", None).is_err());
+    assert_eq!(url_for("directory", None).unwrap(), "claude://claude.ai/directory");
     use crate::claude_app::url_for_with;
     assert_eq!(
         url_for_with("add-marketplace", Some("jocoding-ax-partners/axhub"), Some("axhub")).unwrap(),

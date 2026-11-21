@@ -50,6 +50,7 @@ pub fn url_for_with(kind: &str, value: Option<&str>, plugin: Option<&str>) -> Re
             Ok(url)
         }
         ("plugins", _) => Ok("claude://claude.ai/customize/plugins".into()),
+        ("directory", _) => Ok("claude://claude.ai/directory".into()),
         ("plugin", Some(v)) if valid_plugin_ref(v) => Ok(if v.starts_with("plugin_") {
             format!("claude://claude.ai/customize/plugins/id/{v}")
         } else {
