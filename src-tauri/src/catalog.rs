@@ -48,6 +48,8 @@ fn from_cli() -> Result<Vec<CatalogEntry>, String> {
                 version: s(e, "version"),
                 source_url: e.get("source").and_then(source_url),
                 installable: true,
+                directory_id: None,
+                surfaces: Vec::new(),
                 change: CatalogChange::default(),
                 plugin_id: id,
             })
@@ -82,6 +84,8 @@ fn installed_entry(id: &str, e: &Value) -> CatalogEntry {
         version: s(e, "version").or_else(|| s(&man, "version")),
         source_url: repo.or_else(|| s(&man, "homepage")),
         installable: true,
+        directory_id: None,
+        surfaces: Vec::new(),
         change: CatalogChange::default(),
     }
 }
@@ -106,6 +110,8 @@ fn from_local_cache() -> Vec<CatalogEntry> {
                             .and_then(|x| x.get("repository"))
                             .and_then(|r| s(r, "url")),
                         installable: false,
+                        directory_id: None,
+                        surfaces: Vec::new(),
                         change: CatalogChange::default(),
                         name,
                     })
@@ -113,6 +119,42 @@ fn from_local_cache() -> Vec<CatalogEntry> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+pub fn directory_index() -> HashMap<String, (String, Vec<String>)> {
+    let mut out = HashMap::new();
+    let Ok(v) = read_json(&paths::plugin_directory_cache()) else {
+        return out;
+    };
+    let names: HashMap<String, String> = v
+        .get("entryNames")
+        .and_then(|x| x.as_object())
+        .map(|m| m.iter().filter_map(|(id, n)| Some((id.clone(), n.as_str()?.to_string()))).collect())
+        .unwrap_or_default();
+    for l in v.get("listings").and_then(|x| x.as_array()).into_iter().flatten() {
+        let Some(id) = s(l, "id") else { continue };
+        let surfaces: Vec<String> = l
+            .get("surfaces")
+            .and_then(|x| x.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let name = names.get(&id).cloned().or_else(|| s(l, "name")).unwrap_or_default().to_lowercase();
+        if !name.is_empty() {
+            out.insert(name, (id, surfaces));
+        }
+    }
+    out
+}
+
+fn attach_directory_info(entries: &mut [CatalogEntry]) {
+    let idx = directory_index();
+    for e in entries.iter_mut().filter(|e| e.marketplace == paths::DIRECTORY_MARKETPLACE) {
+        let key = e.plugin_id.split('@').next().unwrap_or(&e.name).to_lowercase();
+        if let Some((id, surfaces)) = idx.get(&key) {
+            e.directory_id = Some(id.clone());
+            e.surfaces = surfaces.clone();
+        }
+    }
 }
 
 const NEW_BADGE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -185,6 +227,7 @@ pub fn load(data_dir: &Path) -> Result<Catalog, String> {
             (entries, "local-cache")
         }
     };
+    attach_directory_info(&mut entries);
     let (new_count, updated_count, first_run) = track_changes(&mut entries, data_dir);
     Ok(Catalog {
         entries,

@@ -157,7 +157,7 @@ const catalogEntries: CatalogEntry[] = [
   marketplace: "anthropic-plugin-directory",
   version,
   sourceUrl: url ?? (name === "superpowers" ? "https://github.com/obra/superpowers" : "https://github.com/anthropics/claude-plugins-official"),
-  installable: true,
+  installable: true, directoryId: null, surfaces: ["claude_code", "cowork", "claude_ai"],
   isNew: i === 11,
   updated: i === 4,
   firstSeen: i === 11 ? Date.now() : 0,
@@ -217,6 +217,9 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
     case "add_marketplace":
       await wait(800);
       return ok(`Added marketplace ${args.source}`);
+    case "open_in_claude_app":
+      console.info("[mock] Claude 앱 열기", args);
+      return null;
     case "get_catalog":
       await wait(300);
       return { entries: catalogEntries, origin: "cli", fetchedAt: Date.now(), newCount: 1, updatedCount: 1, firstRun: false } satisfies Catalog;

@@ -10,6 +10,7 @@ import { DiagnosticItem } from "./DiagnosticItem";
 import { GuidePanel } from "./GuidePanel";
 import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
 import { ScopeEditor } from "./ScopeEditor";
+import { AppUsage } from "./AppUsage";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const { snap, toggle, uninstall, update, busy, groups, setGroups, toast } = useHub();
@@ -74,7 +75,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
 
       {!p.toggleable && (
         <p className="note">
-          Claude 앱 플러그인은 앱이 계정과 동기화해 관리합니다. 여기서 바꿔도 앱이 되돌릴 수 있어 읽기 전용으로 보여줍니다. Claude 앱에서 추가·삭제·켜고 끄면 이 화면에 바로 반영됩니다.
+          Claude 앱 플러그인은 계정과 동기화되어 Claude 앱이 관리합니다. 켜고 끄기·삭제는 아래 "Claude 앱에서 이 플러그인 열기"로 앱의 해당 화면을 바로 열어 하면 되고, 바꾼 내용은 이 화면에 바로 반영됩니다.
         </p>
       )}
 
@@ -118,7 +119,14 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         </section>
       )}
 
-      <section>
+      {p.surface === "desktop" && (
+        <section>
+          <h3>Claude 앱에서 쓰는 법</h3>
+          <AppUsage key={p.id} plugin={p} />
+        </section>
+      )}
+
+      {p.surface === "cli" && <section>
         <h3>슬래시 명령</h3>
         <SlashHelp />
         {direct.length === 0 && autoOnly.length === 0 ? (
@@ -134,7 +142,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
             <ul className="cmd-list">{autoOnly.map((s) => <SlashRow key={s.comp.name} item={s} />)}</ul>
           </>
         )}
-      </section>
+      </section>}
 
       {(c.agents.length > 0 || c.hooks.length > 0 || c.mcpServers.length > 0) && (
         <section>

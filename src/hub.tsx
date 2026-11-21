@@ -58,6 +58,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState<Record<string, string>>({});
   const seenDiag = useRef<Set<string> | null>(null);
+  const seenApp = useRef<Set<string> | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -89,6 +90,11 @@ export function HubProvider({ children }: { children: ReactNode }) {
         }
       }
       seenDiag.current = new Set(important.map((d) => d.id));
+      const appNow = s.plugins.filter((p) => p.surface === "desktop");
+      if (seenApp.current) {
+        for (const p of appNow) if (!seenApp.current.has(p.id)) toast("ok", `Claude 앱에 설치됨: ${p.displayName}`);
+      }
+      seenApp.current = new Set(appNow.map((p) => p.id));
       setSnap(s);
       setLoadError(null);
     } catch (e) {

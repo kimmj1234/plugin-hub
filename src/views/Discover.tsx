@@ -5,6 +5,7 @@ import { useHub } from "../hub";
 import type { AcceptPrompt, CatalogEntry, InstallScope } from "../types";
 import { CATEGORIES, OTHER, POPULARITY_DATE, categorize, categoryById, formatStars, koDescription, stars, topPopular } from "../catalogMeta";
 import { GuidePanel } from "../components/GuidePanel";
+import { entryRef, usableInApp } from "../claudeApp";
 
 const PAGE = 60;
 type Sort = "popular" | "new" | "name";
@@ -74,6 +75,8 @@ export function Discover() {
         version: p.version,
         sourceUrl: p.repository ?? p.homepage,
         installable: false,
+        directoryId: null,
+        surfaces: ["cowork", "claude_ai"],
         isNew: false,
         updated: false,
         firstSeen: 0,
@@ -88,10 +91,20 @@ export function Discover() {
   }, [catalog, appPlugins]);
 
   const rows = useMemo(
-    () => (surface === "cli" ? allRows.filter((e) => !appOnly.has(e.pluginId)) : allRows.filter((e) => appMarkets.has(e.marketplace) || inApp(e))),
+    () => (surface === "cli" ? allRows.filter((e) => !appOnly.has(e.pluginId)) : allRows.filter((e) => inApp(e) || appOnly.has(e.pluginId) || (usableInApp(e) ?? appMarkets.has(e.marketplace)))),
     [allRows, appOnly, surface, appMarkets, appNames],
   );
   const installedCount = (s: Surface) => (s === "cli" ? cliIds.size : appPlugins.length);
+
+  const installInApp = async (e: CatalogEntry) => {
+    const ref = entryRef(e);
+    try {
+      await api.openInClaudeApp(ref ? "plugin" : "plugins", ref);
+      toast("info", `Claude 앱에서 ${e.name}의 '설치'를 누르면 여기에도 바로 반영됩니다`);
+    } catch (err) {
+      toast("error", errorText(err));
+    }
+  };
 
   const catCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -195,7 +208,7 @@ export function Discover() {
         ) : surface === "cli" ? (
           e.installable && <button onClick={(ev) => { ev.stopPropagation(); openConfirm(e); }}>설치</button>
         ) : (
-          <span className="muted small">앱에서 추가</span>
+          <button onClick={(ev) => { ev.stopPropagation(); installInApp(e); }} title="Claude 앱의 이 플러그인 화면을 엽니다">앱에 설치</button>
         )}
       </li>
     );
@@ -216,7 +229,7 @@ export function Discover() {
         <p className="muted small surface-help">
           {surface === "cli"
             ? "터미널과 Claude 앱의 Code 탭이 함께 쓰는 플러그인입니다(~/.claude). 여기서 바로 설치할 수 있습니다."
-            : "Claude 앱의 채팅·Cowork에서 쓰는 플러그인입니다. 계정에 동기화되므로 설치는 Claude 앱에서 하고, 여기서는 목록과 설치 상태를 봅니다."}
+            : "Claude 앱의 채팅·Cowork에서 쓸 수 있는 플러그인입니다. '앱에 설치'를 누르면 Claude 앱의 해당 화면이 열리고, 설치하면 여기에 바로 반영됩니다."}
         </p>
 
         <div className="toolbar">
@@ -310,7 +323,7 @@ export function Discover() {
               ) : surface === "cli" ? (
                 selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => openConfirm(selected)}>설치</button>
               ) : (
-                <span className="badge">Claude 앱의 플러그인 메뉴에서 추가하면 여기에 바로 반영됩니다</span>
+                <button className="primary" onClick={() => installInApp(selected)}>Claude 앱에 설치</button>
               )}
               {installedOn(selected, other) && <span className="badge">{SURFACE_LABEL[other]}에도 설치됨</span>}
               {selected.sourceUrl && /^https?:\/\//.test(selected.sourceUrl) && (
@@ -323,7 +336,7 @@ export function Discover() {
             </section>
             <p className="note">
               {surface === "desktop"
-                ? "Claude 앱 플러그인은 계정과 동기화되어 Claude 앱이 관리합니다. 터미널에도 쓰려면 위에서 '터미널·Claude Code'를 골라 설치하세요."
+                ? "'Claude 앱에 설치'를 누르면 Claude 앱의 이 플러그인 화면이 열립니다. 앱에서 '설치'를 한 번 누르면 끝나고, 설치되면 이 화면에 바로 표시됩니다. 앱 플러그인은 계정에 연결되어 있어 마지막 설치 확인은 보안상 Claude 앱에서 합니다. 설치 후 '설치된 플러그인 → Claude 앱'에서 쓰는 법을 볼 수 있습니다."
                 : <>설치하면 공식 <code>claude plugin install</code> 명령으로 고른 범위(PC 전체 또는 폴더)에 설치되고 바로 켜집니다. 플러그인은 내 컴퓨터에서 코드를 실행할 수 있으니 출처를 확인하세요.</>}
             </p>
           </div>

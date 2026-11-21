@@ -149,6 +149,13 @@ fn real_scan() {
     for d in &s.diagnostics {
         println!("{} {} — {}", d.severity, d.id, d.title);
     }
+    let data = temp_dir("real-catalog");
+    if let Ok(c) = crate::catalog::load(&data) {
+        let with_id = c.entries.iter().filter(|e| e.directory_id.is_some()).count();
+        let app = c.entries.iter().filter(|e| e.surfaces.iter().any(|s| s == "cowork" || s == "claude_ai")).count();
+        println!("catalog {} entries, directory id {with_id}, app usable {app}", c.entries.len());
+    }
+    let _ = fs::remove_dir_all(&data);
 }
 
 #[test]
@@ -183,6 +190,8 @@ fn tracks_new_and_updated_catalog_entries() {
         version: Some(v.into()),
         source_url: None,
         installable: true,
+        directory_id: None,
+        surfaces: Vec::new(),
         change: CatalogChange::default(),
     };
     let mut a = vec![entry("a@m", "1.0.0"), entry("b@m", "1.0.0")];
@@ -299,6 +308,19 @@ fn settings_writes_are_safe() {
         assert!(fs::read_to_string(&real).unwrap().contains("a@m"));
     }
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn builds_claude_app_links_safely() {
+    use crate::claude_app::url_for;
+    assert_eq!(url_for("plugin", Some("plugin_016Wk")).unwrap(), "claude://claude.ai/customize/plugins/id/plugin_016Wk");
+    assert_eq!(url_for("plugin", Some("design@knowledge-work-plugins")).unwrap(), "claude://claude.ai/customize/plugins/design%40knowledge-work-plugins");
+    assert!(url_for("plugin", Some("../x")).is_err());
+    assert!(url_for("plugin", Some("a/b")).is_err());
+    assert_eq!(url_for("chat", Some("표 만들어 줘 & 정리")).unwrap(), "claude://claude.ai/new?q=%ED%91%9C%20%EB%A7%8C%EB%93%A4%EC%96%B4%20%EC%A4%98%20%26%20%EC%A0%95%EB%A6%AC&surface=chat");
+    assert!(url_for("chat", Some("  ")).is_err());
+    assert!(url_for("chat", Some(&"가".repeat(8001))).is_err());
+    assert!(url_for("other", None).is_err());
 }
 
 #[test]

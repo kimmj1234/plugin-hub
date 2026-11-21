@@ -269,3 +269,9 @@ button.link.danger { color: var(--err); }
 .surface-seg button { flex: 1; padding: 7px 10px; font-size: 13px; }
 .surface-seg .count { margin-left: 4px; font-weight: 400; }
 .surface-help { margin: 0 0 8px; }
+.app-usage .steps { padding-left: 18px; margin: 4px 0 10px; display: grid; gap: 6px; }
+.app-usage .steps .link { margin-left: 6px; }
+.usage-items { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; max-height: 260px; overflow: auto; }
+.usage-pick { width: 100%; text-align: left; display: grid; gap: 2px; padding: 6px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; }
+.usage-items li.selected .usage-pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.prompt-box { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); resize: vertical; margin-top: 4px; }

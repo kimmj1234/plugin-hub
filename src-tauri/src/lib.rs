@@ -1,4 +1,5 @@
 mod catalog;
+mod claude_app;
 mod cli;
 mod guide;
 mod model;
@@ -279,6 +280,11 @@ async fn ai_status() -> Result<AiStatus, String> {
 }
 
 #[tauri::command]
+fn open_in_claude_app(kind: String, value: Option<String>) -> Result<(), String> {
+    claude_app::open(&kind, value.as_deref())
+}
+
+#[tauri::command]
 fn open_login() -> Result<(), String> {
     guide::open_login_terminal()
 }
@@ -380,6 +386,7 @@ pub fn run() {
             update_marketplaces,
             ai_status,
             open_login,
+            open_in_claude_app,
             get_guide,
             generate_guide,
             read_readme,

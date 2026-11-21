@@ -97,6 +97,8 @@ export interface CatalogEntry {
   version: string | null;
   sourceUrl: string | null;
   installable: boolean;
+  directoryId: string | null;
+  surfaces: string[];
   isNew: boolean;
   updated: boolean;
   firstSeen: number;
