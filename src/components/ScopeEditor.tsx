@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useHub } from "../hub";
 import { api } from "../api";
 import type { Plugin, ProjectState } from "../types";
@@ -24,11 +25,15 @@ export function EffectiveBadge({ on, source }: { on: boolean; source: keyof type
 
 export function ScopeEditor({ plugin }: { plugin: Plugin }) {
   const { snap, toggle, setFolder, addProject } = useHub();
+  const [openState, setOpenState] = useState<boolean | null>(null);
   if (!snap || plugin.surface !== "cli") return null;
   const p = plugin;
   const userMap = userEnabledMap(snap.plugins);
   const folderInstalled = p.scope === "project" || p.scope === "local";
   const projects: ProjectState[] = snap.projects;
+  // 폴더마다 따로 정한 값이 있으면 처음부터 펼쳐 둔다. 없으면 접어 두고 필요할 때만 연다.
+  const overridden = projects.filter((pr) => pr.shared[p.id] !== undefined || pr.local[p.id] !== undefined);
+  const open = openState ?? overridden.length > 0;
 
   const add = async () => {
     const path = await api.pickFolder();
@@ -51,7 +56,16 @@ export function ScopeEditor({ plugin }: { plugin: Plugin }) {
         </div>
       )}
 
-      {!folderInstalled && (
+      {!folderInstalled && !open && (
+        <div className="scope-summary">
+          <span className="muted small">
+            {overridden.length === 0 ? "모든 작업 폴더에서 위 기본값을 따릅니다." : `작업 폴더 ${overridden.length}곳에서 따로 정했습니다.`}
+          </span>
+          <button onClick={() => setOpenState(true)} aria-expanded={false}>폴더별로 따로 정하기</button>
+        </div>
+      )}
+
+      {!folderInstalled && open && (
         <>
           <table className="scope-table">
             <thead>
@@ -90,6 +104,7 @@ export function ScopeEditor({ plugin }: { plugin: Plugin }) {
           </table>
           <div className="actions">
             <button onClick={add}>+ 폴더 추가</button>
+            {overridden.length === 0 && <button onClick={() => setOpenState(false)} aria-expanded={true}>접기</button>}
             <span className="muted small">"팀 공유"는 폴더의 <code>.claude/settings.json</code>에 저장되어 git으로 팀원에게도 적용됩니다.</span>
           </div>
         </>

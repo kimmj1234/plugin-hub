@@ -161,6 +161,12 @@ ul.plain { list-style: none; padding: 0; margin: 0; line-height: 1.9; }
 .warn-text { color: var(--bad); }
 .bad-text { color: var(--err); }
 .badge.cost { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.badge.cost.light { background: var(--code); color: var(--muted); }
+.badge.cost.heavy { background: var(--warn-bg); color: var(--bad); }
+.weight { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.weight.light { background: var(--code); color: var(--muted); }
+.weight.heavy { background: var(--warn-bg); color: var(--bad); font-weight: 600; }
+.scope-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .dot.bad { background: var(--bad); }
 .more { align-self: center; }

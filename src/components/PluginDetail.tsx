@@ -11,7 +11,7 @@ import { GuidePanel } from "./GuidePanel";
 import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
 import { ScopeEditor } from "./ScopeEditor";
 import { AppUsage } from "./AppUsage";
-import { alwaysOnTokens, formatTokens, recentlyInstalled, usageLabel, usageOf } from "../cost";
+import { alwaysOnTokens, formatTokens, recentlyInstalled, tokenWeight, usageLabel, usageOf } from "../cost";
 import { SURFACE } from "../surface";
 
 export function PluginDetail({ plugin }: { plugin: Plugin }) {
@@ -20,6 +20,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const p = plugin;
   const c = p.components;
+  const weight = tokenWeight(alwaysOnTokens(p));
   const diags = p.surface === "cli" ? (snap?.diagnostics.filter((d) => d.pluginId === p.id) ?? []) : [];
   const busyLabel = busy[p.id];
   const groupId = groups.find((g) => g.pluginIds.includes(p.id))?.id ?? "";
@@ -74,7 +75,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         {p.scope && <span className="badge">설치 범위: {p.scope === "user" ? "PC 전체" : p.scope === "local" ? "폴더·나만" : "폴더·팀 공유"}</span>}
         {p.author && <span className="badge">제작: {p.author}</span>}
         <span className="badge">슬래시 명령 {direct.length}개</span>
-        <span className="badge cost" title="세션을 시작할 때마다 스킬·명령·에이전트 설명이 컨텍스트에 들어갑니다. 추정값입니다.">매 세션 약 {formatTokens(alwaysOnTokens(p))} 토큰{c.mcpServers.length ? " + MCP" : ""}</span>
+        <span className={`badge cost ${weight.level}`} title={`세션을 시작할 때마다 스킬·명령·에이전트 설명이 컨텍스트에 들어갑니다. 추정값입니다. ${weight.hint}`}>{weight.label} · 매 세션 약 {formatTokens(alwaysOnTokens(p))} 토큰{c.mcpServers.length ? " + MCP" : ""}</span>
         {p.surface === "cli" && usage && (
           <span className={`badge ${usageOf(usage, p)?.count ? "ok" : recentlyInstalled(p) ? "" : "warn"}`}>{usageLabel(usageOf(usage, p), usageDays, p)}</span>
         )}
@@ -88,10 +89,10 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
 
       <div className="actions">
         {p.surface === "cli" && (
-          <select value={groupId} onChange={(e) => moveTo(e.target.value)} aria-label="폴더">
-            <option value="">폴더: 미분류</option>
+          <select value={groupId} onChange={(e) => moveTo(e.target.value)} aria-label="묶음">
+            <option value="">묶음: 미분류</option>
             {groups.map((g) => (
-              <option key={g.id} value={g.id}>폴더: {g.name}</option>
+              <option key={g.id} value={g.id}>묶음: {g.name}</option>
             ))}
           </select>
         )}
@@ -124,7 +125,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
               위의 "설치 기록 정리"를 누르면 남은 기록을 지웁니다. 다른 곳에서 쓰려면 정리한 뒤 다시 설치하세요.
             </p>
           ) : (
-            <ScopeEditor plugin={p} />
+            <ScopeEditor key={p.id} plugin={p} />
           )}
         </section>
       )}

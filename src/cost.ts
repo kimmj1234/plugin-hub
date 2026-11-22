@@ -28,6 +28,17 @@ export function formatTokens(n: number): string {
   return `${n}`;
 }
 
+/// 토큰 수에 기준을 붙인다. 플러그인 하나가 매 세션 차지하는 양 기준(1천 미만 가벼움, 5천 이상 무거움).
+export const WEIGHT_LIGHT = 1000;
+export const WEIGHT_HEAVY = 5000;
+export type Weight = { level: "light" | "medium" | "heavy"; label: string; hint: string };
+export function tokenWeight(n: number): Weight {
+  const hint = "기준: 1천 토큰 미만 가벼움 · 5천 이상 무거움";
+  if (n < WEIGHT_LIGHT) return { level: "light", label: "가벼움", hint };
+  if (n < WEIGHT_HEAVY) return { level: "medium", label: "보통", hint };
+  return { level: "heavy", label: "무거움", hint };
+}
+
 export function daysAgo(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);

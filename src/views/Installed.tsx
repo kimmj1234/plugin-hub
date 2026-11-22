@@ -5,7 +5,7 @@ import { Toggle } from "../components/Toggle";
 import { PluginDetail } from "../components/PluginDetail";
 import type { Plugin, Surface } from "../types";
 import { koFor } from "../catalogMeta";
-import { alwaysOnTokens, formatTokens, recentlyInstalled, usageLabel, usageOf } from "../cost";
+import { alwaysOnTokens, formatTokens, recentlyInstalled, tokenWeight, usageLabel, usageOf } from "../cost";
 import { SurfaceLabel } from "../surface";
 
 const ALL = "__all";
@@ -75,7 +75,7 @@ export function Installed() {
         </div>
 
         {surface === "cli" && (
-          <div className="folders">
+          <div className="folders" role="group" aria-label="내가 만든 묶음">
             <FolderRow label="전체" active={folder === ALL} count={plugins.length} onClick={() => setFolder(ALL)} />
             {groups.map((g) => {
               const members = plugins.filter((p) => g.pluginIds.includes(p.id));
@@ -96,17 +96,17 @@ export function Installed() {
               ) : (
                 <FolderRow
                   key={g.id}
-                  label={`📁 ${g.name}`}
+                  label={g.name}
                   active={folder === g.id}
                   count={members.length}
                   onClick={() => setFolder(g.id)}
                   extra={
                     folder === g.id && (
                       <span className="folder-actions">
-                        <button title="폴더 안 플러그인 모두 켜기" onClick={(e) => { e.stopPropagation(); toggleMany(members, true); }}>모두 켬</button>
-                        <button title="폴더 안 플러그인 모두 끄기" onClick={(e) => { e.stopPropagation(); toggleMany(members, false); }}>모두 끔</button>
-                        <button title="이름 바꾸기" onClick={(e) => { e.stopPropagation(); setRenaming(g.id); }}>✎</button>
-                        <button title="폴더 삭제 (플러그인은 그대로)" onClick={(e) => { e.stopPropagation(); removeGroup(g.id); }}>✕</button>
+                        <button title="이 묶음의 플러그인 모두 켜기" onClick={(e) => { e.stopPropagation(); toggleMany(members, true); }}>모두 켬</button>
+                        <button title="이 묶음의 플러그인 모두 끄기" onClick={(e) => { e.stopPropagation(); toggleMany(members, false); }}>모두 끔</button>
+                        <button title="묶음 이름 바꾸기" onClick={(e) => { e.stopPropagation(); setRenaming(g.id); }}>✎</button>
+                        <button title="묶음 삭제 (플러그인은 그대로)" onClick={(e) => { e.stopPropagation(); removeGroup(g.id); }}>✕</button>
                       </span>
                     )
                   }
@@ -115,7 +115,7 @@ export function Installed() {
             })}
             <FolderRow label="미분류" active={folder === UNGROUPED} count={plugins.filter((p) => !grouped.has(p.id)).length} onClick={() => setFolder(UNGROUPED)} />
             <div className="new-folder">
-              <input placeholder="새 폴더 이름" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} />
+              <input placeholder="새 묶음 이름" aria-label="새 묶음 이름" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} />
               <button onClick={addGroup} disabled={!newName.trim()}>추가</button>
             </div>
           </div>
@@ -137,7 +137,7 @@ export function Installed() {
                     installingIds.has(p.id) ? <span className="spinner-text">설치 마무리 중…</span> : <span className="bad-text">설치되지 않음</span>
                   ) : (
                     p.folderMissing ? <span className="warn-text" title={p.projectPath ?? ""}>설치한 폴더가 삭제됨 · 기록 정리 필요</span> : <>
-                      <span title="매 세션 컨텍스트에 들어가는 양(추정)">~{formatTokens(alwaysOnTokens(p))} 토큰</span>
+                      <TokenWeight n={alwaysOnTokens(p)} />
                       {surface === "cli" && usage && (
                         <span className={p.enabled && !usageOf(usage, p)?.count && !recentlyInstalled(p) ? "warn-text" : ""}> · {usageLabel(usageOf(usage, p), usageDays, p)}</span>
                       )}
@@ -168,6 +168,15 @@ export function Installed() {
         {current ? <PluginDetail plugin={current} /> : <div className="empty-detail">왼쪽에서 플러그인을 고르면 용도와 사용 방법을 보여줍니다.</div>}
       </div>
     </div>
+  );
+}
+
+function TokenWeight({ n }: { n: number }) {
+  const w = tokenWeight(n);
+  return (
+    <span title={`매 세션 컨텍스트에 들어가는 양(추정) · ${w.hint}`}>
+      <span className={`weight ${w.level}`}>{w.label}</span> ~{formatTokens(n)} 토큰
+    </span>
   );
 }
 
