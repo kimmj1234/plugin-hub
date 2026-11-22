@@ -40,18 +40,17 @@ pub fn plugins_in_line<'a>(line: &str, names: &'a [String]) -> Vec<&'a str> {
         let mut rest = line;
         while let Some(pos) = rest.find(m) {
             rest = &rest[pos + m.len()..];
-            let token: &str = rest.split(|c| c == '"' || c == '<' || c == ' ' || c == '\\').next().unwrap_or("");
+            let token: &str = rest.split(['"', '<', ' ', '\\']).next().unwrap_or("");
             let hit = if i == 3 {
                 // mcp__plugin_<플러그인>_<서버>__<도구>
                 names.iter().find(|n| token.starts_with(&format!("{n}_")))
             } else {
                 token.split_once(':').and_then(|(p, _)| names.iter().find(|n| n.as_str() == p))
             };
-            if let Some(n) = hit {
-                if !out.contains(&n.as_str()) {
+            if let Some(n) = hit
+                && !out.contains(&n.as_str()) {
                     out.push(n.as_str());
                 }
-            }
         }
     }
     out
@@ -117,11 +116,10 @@ pub fn scan_in(root: &Path, names: &[String], days: u32, now: SystemTime) -> Usa
             for n in plugins_in_line(&line, names) {
                 let u = map.entry(n).or_insert_with(|| PluginUsage { plugin: n.to_string(), ..Default::default() });
                 u.count += 1;
-                if let Some(t) = ts {
-                    if u.last_used.as_deref().is_none_or(|l| t > l) {
+                if let Some(t) = ts
+                    && u.last_used.as_deref().is_none_or(|l| t > l) {
                         u.last_used = Some(t.to_string());
                     }
-                }
             }
         }
     }

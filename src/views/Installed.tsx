@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { selectable } from "../a11y";
 import { useHub } from "../hub";
 import { Toggle } from "../components/Toggle";
 import { PluginDetail } from "../components/PluginDetail";
@@ -18,6 +19,7 @@ export function Installed() {
   const [selected, setSelected] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
+  const renameCancelled = useRef(false);
 
   const plugins = useMemo(() => snap?.plugins.filter((p) => p.surface === surface) ?? [], [snap, surface]);
   const grouped = new Set(groups.flatMap((g) => g.pluginIds));
@@ -48,6 +50,12 @@ export function Installed() {
   };
 
   const renameGroup = (id: string, name: string) => {
+    // Esc로 취소했으면 저장하지 않는다. Enter는 입력칸을 벗어나게만 해서 저장이 한 번만 일어나게 한다.
+    if (renameCancelled.current) {
+      renameCancelled.current = false;
+      setRenaming(null);
+      return;
+    }
     if (name.trim()) setGroups(groups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g)));
     setRenaming(null);
   };
@@ -77,7 +85,13 @@ export function Installed() {
                   autoFocus
                   defaultValue={g.name}
                   onBlur={(e) => renameGroup(g.id, e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && renameGroup(g.id, (e.target as HTMLInputElement).value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      renameCancelled.current = true;
+                      e.currentTarget.blur();
+                    }
+                  }}
                 />
               ) : (
                 <FolderRow
@@ -111,7 +125,7 @@ export function Installed() {
 
         <ul className="plugin-list">
           {visible.map((p) => (
-            <li key={p.id} className={p.id === selected ? "selected" : ""} onClick={() => setSelected(p.id)}>
+            <li key={p.id} className={p.id === selected ? "selected" : ""} {...selectable(() => setSelected(p.id), p.id === selected)}>
               <div className="pl-main">
                 <div className="pl-name">
                   {problemIds.has(p.id) && <span className="dot bad" title="문제 감지됨" />}
@@ -122,7 +136,7 @@ export function Installed() {
                   {!p.installed ? (
                     installingIds.has(p.id) ? <span className="spinner-text">설치 마무리 중…</span> : <span className="bad-text">설치되지 않음</span>
                   ) : (
-                    <>
+                    p.folderMissing ? <span className="warn-text" title={p.projectPath ?? ""}>설치한 폴더가 삭제됨 · 기록 정리 필요</span> : <>
                       <span title="매 세션 컨텍스트에 들어가는 양(추정)">~{formatTokens(alwaysOnTokens(p))} 토큰</span>
                       {surface === "cli" && usage && (
                         <span className={p.enabled && !usageOf(usage, p)?.count && !recentlyInstalled(p) ? "warn-text" : ""}> · {usageLabel(usageOf(usage, p), usageDays, p)}</span>
@@ -132,8 +146,8 @@ export function Installed() {
                 </div>
               </div>
               <Toggle
-                checked={p.enabled}
-                disabled={!p.toggleable || !p.installed || !!snap.settingsError}
+                checked={p.enabled && p.installed && !p.folderMissing}
+                disabled={!p.toggleable || !p.installed || p.folderMissing || !!snap.settingsError}
                 onChange={(v) => toggle(p, v)}
                 label={`${p.displayName} 켜기/끄기`}
               />
@@ -159,7 +173,7 @@ export function Installed() {
 
 function FolderRow({ label, active, count, onClick, extra }: { label: string; active: boolean; count: number; onClick: () => void; extra?: React.ReactNode }) {
   return (
-    <div className={`folder ${active ? "active" : ""}`} onClick={onClick}>
+    <div className={`folder ${active ? "active" : ""}`} {...selectable(onClick, active)}>
       <span className="folder-label">{label}</span>
       {extra}
       <span className="count">{count}</span>

@@ -169,8 +169,22 @@ pub fn evaluate(
                 None,
             ));
         }
-        if let (Some(cur), Some(latest)) = (&p.version, &p.latest_version) {
-            if is_semver(latest) && is_semver(cur) && version_key(latest) > version_key(cur) {
+        if p.installed && p.folder_missing {
+            out.push(diag(
+                format!("folder-missing:{}", p.id),
+                "warning",
+                Some(&p.id),
+                format!("{}: 설치한 폴더가 삭제되었습니다", p.name),
+                format!(
+                    "이 플러그인은 {} 폴더에서만 쓰도록 설치되었는데 그 폴더가 없어져 어디에서도 동작하지 않습니다. 켜기·끄기와 업데이트는 할 수 없고, 남은 설치 기록은 정리할 수 있습니다.",
+                    p.project_path.clone().unwrap_or_default()
+                ),
+                Some(("cleanup-folder", "설치 기록 정리")),
+            ));
+            continue;
+        }
+        if let (Some(cur), Some(latest)) = (&p.version, &p.latest_version)
+            && is_semver(latest) && is_semver(cur) && version_key(latest) > version_key(cur) {
                 out.push(diag(
                     format!("update:{}", p.id),
                     "info",
@@ -180,7 +194,6 @@ pub fn evaluate(
                     Some(("update", "업데이트")),
                 ));
             }
-        }
         if p.enabled && !p.components.hooks.is_empty() {
             out.push(diag(
                 format!("hooks:{}", p.id),

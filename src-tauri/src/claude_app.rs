@@ -16,7 +16,7 @@ fn valid_plugin_ref(v: &str) -> bool {
     !v.is_empty() && v.len() <= 200 && v.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) && v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '@'))
 }
 
-fn valid_marketplace(v: &str) -> bool {
+pub fn valid_marketplace(v: &str) -> bool {
     if v.len() > 300 {
         return false;
     }

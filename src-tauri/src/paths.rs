@@ -214,16 +214,50 @@ pub fn version_key(v: &str) -> Vec<u64> {
         .collect()
 }
 
+/// 실제 경로(링크 해석). Windows의 `fs::canonicalize`는 `\\?\C:\...` 형태를 돌려주는데, 이 형태는
+/// cmd.exe 작업 폴더로 쓸 수 없고 Claude Code가 기록하는 경로(`C:\...`)와도 문자열이 달라 일반 형태로 바꾼다.
+pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
+    let c = std::fs::canonicalize(p)?;
+    Ok(strip_verbatim(c))
+}
+
+pub fn strip_verbatim(c: PathBuf) -> PathBuf {
+    let s = c.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\")
+        && rest.as_bytes().get(1) == Some(&b':') {
+            return PathBuf::from(rest);
+        }
+    c
+}
+
+/// Windows 시스템 폴더인지 (드라이브 문자·대소문자와 무관하게)
+pub fn is_windows_system_path(s: &str) -> bool {
+    let lower = s.to_lowercase().replace('/', "\\");
+    let after_drive = match lower.as_bytes().get(1) {
+        Some(b':') => &lower[2..],
+        _ => return false,
+    };
+    ["\\windows", "\\program files", "\\program files (x86)", "\\programdata"]
+        .iter()
+        .any(|p| after_drive == *p || after_drive.starts_with(&format!("{p}\\")))
+}
+
 /// 작업 폴더로 등록하면 안 되는 위치. 시스템 폴더나 홈의 민감한 폴더에 설정 파일을 쓰지 않게 한다.
 pub fn forbidden_project(dir: &Path) -> Option<&'static str> {
-    let home = std::fs::canonicalize(home()).unwrap_or_else(|_| home());
+    let home = canonical(&home()).unwrap_or_else(|_| home());
     if dir == home || dir.parent().is_none() {
         return Some("홈 폴더나 최상위 폴더는 등록할 수 없습니다. 작업하는 프로젝트 폴더를 고르세요.");
     }
     #[cfg(unix)]
     const SYSTEM: &[&str] = &["/System", "/Library", "/private", "/usr", "/bin", "/sbin", "/etc", "/var", "/dev", "/Applications", "/opt", "/Volumes"];
     #[cfg(windows)]
-    const SYSTEM: &[&str] = &["C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)", "C:\\ProgramData"];
+    const SYSTEM: &[&str] = &[];
+    if is_windows_system_path(&dir.to_string_lossy()) {
+        return Some("시스템 폴더는 작업 폴더로 등록할 수 없습니다.");
+    }
     // 외장 디스크(/Volumes/이름/…) 안의 프로젝트는 허용하고, /Volumes 바로 아래만 막는다
     if dir.starts_with("/Volumes") && dir.components().count() > 3 {
         return None;
@@ -231,7 +265,7 @@ pub fn forbidden_project(dir: &Path) -> Option<&'static str> {
     if SYSTEM.iter().any(|s| dir.starts_with(s)) {
         return Some("시스템 폴더는 작업 폴더로 등록할 수 없습니다.");
     }
-    let claude = std::fs::canonicalize(claude_home()).unwrap_or_else(|_| claude_home());
+    let claude = canonical(&claude_home()).unwrap_or_else(|_| claude_home());
     for sensitive in [home.join("Library"), home.join(".ssh"), home.join(".config"), claude] {
         if dir.starts_with(&sensitive) {
             return Some("앱 설정·보안 폴더는 작업 폴더로 등록할 수 없습니다.");

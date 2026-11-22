@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { selectable } from "../a11y";
 import { api, errorText } from "../api";
 import { useHub } from "../hub";
 import { koFor } from "../catalogMeta";
@@ -58,7 +59,7 @@ export function Commands() {
         <input className="search" placeholder="하고 싶은 일로 찾기 (예: 커밋, 리뷰, 배포)" value={query} onChange={(e) => setQuery(e.target.value)} />
         <ul className="plugin-list">
           {shown.map((p) => (
-            <li key={p.id} className={p.id === current?.id ? "selected" : ""} onClick={() => setSelected(p.id)}>
+            <li key={p.id} className={p.id === current?.id ? "selected" : ""} {...selectable(() => setSelected(p.id), p.id === current?.id)}>
               <div className="pl-main">
                 <div className="pl-name">{p.displayName}</div>
                 {(koFor(p) || p.description) && <div className="pl-desc">{koFor(p) || p.description}</div>}
@@ -93,7 +94,13 @@ function PluginCommands({ p }: { p: Plugin }) {
   const alreadyKorean = described.length > 0 && described.filter((s) => /[가-힣]/.test(s.comp.description)).length * 2 >= described.length;
 
   useEffect(() => {
-    api.getGuide(p.id, p.version).then(setGuide).catch(() => {});
+    // 플러그인을 빠르게 바꿔 고르면 이전 플러그인의 결과가 늦게 와서 덮어쓰지 않게 한다
+    let alive = true;
+    setGuide(null);
+    api.getGuide(p.id, p.version).then((g) => alive && setGuide(g)).catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, [p.id, p.version]);
 
   const byKey = new Map<string, GuideCommand>((guide?.commands ?? []).map((c) => [key(c.command), c]));

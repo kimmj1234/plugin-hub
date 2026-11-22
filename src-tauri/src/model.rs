@@ -68,6 +68,9 @@ pub struct Plugin {
     /// 설치한 시각(ISO). 막 설치한 플러그인을 "안 쓰는 플러그인"으로 추천하지 않기 위해 쓴다.
     #[serde(default)]
     pub installed_at: Option<String>,
+    /// 폴더 범위(project/local)로 설치했는데 그 폴더가 없어졌다. 이 경우 켜기·끄기·업데이트는 할 수 없고 삭제(기록 정리)만 된다.
+    #[serde(default)]
+    pub folder_missing: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -107,6 +110,8 @@ pub struct Snapshot {
     pub projects: Vec<ProjectState>,
     pub settings_error: Option<String>,
     pub scanned_at: u64,
+    /// 설정 파일 실시간 감시가 동작 중인지 (시작에 실패하면 화면에 "실시간 감시 꺼짐"으로 표시)
+    pub watcher_ok: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -143,6 +148,9 @@ pub struct Catalog {
     pub new_count: usize,
     pub updated_count: usize,
     pub first_run: bool,
+    /// 공식 명령으로 목록을 받지 못해 로컬 캐시를 보여 줄 때, 그 이유
+    #[serde(default)]
+    pub fallback_reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -190,6 +198,8 @@ pub struct CliResult {
     pub stdout: String,
     pub stderr: String,
     pub needs_accept: Option<AcceptPrompt>,
+    /// 성공했지만 사용자에게 알려야 할 내용 (예: 정리에 쓴 임시 폴더를 지우지 못함)
+    pub warning: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

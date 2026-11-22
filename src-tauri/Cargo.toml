@@ -1,6 +1,6 @@
 [package]
 name = "plugin-hub"
-version = "1.0.2"
+version = "1.0.3"
 description = "Claude Code 플러그인 관리 데스크톱 앱"
 authors = ["김명제"]
 edition = "2024"

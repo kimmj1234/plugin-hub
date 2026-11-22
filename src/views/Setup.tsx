@@ -46,7 +46,7 @@ export function Setup({ onDone, reopen }: { onDone: () => void; reopen?: boolean
   }, [step, refreshPerm]);
 
   const finish = async () => {
-    await setPrefs({
+    const saved = await setPrefs({
       ...prefs,
       onboardingDone: true,
       privacyAck: PRIVACY_VERSION,
@@ -55,7 +55,8 @@ export function Setup({ onDone, reopen }: { onDone: () => void; reopen?: boolean
       autoUpdatePlugins: autoPlugins,
       appUpdate,
     });
-    onDone();
+    // 저장에 실패하면(예: 로그인 시 실행을 켜지 못함) 설정 화면에 머문다. 오류 알림은 setPrefs가 띄운다.
+    if (saved) onDone();
   };
 
   const isMac = perm?.os === "macos";

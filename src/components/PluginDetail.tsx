@@ -56,8 +56,8 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
           <div className="muted mono">{p.id}</div>
         </div>
         <Toggle
-          checked={p.enabled}
-          disabled={!p.toggleable || !p.installed || !!snap?.settingsError}
+          checked={p.enabled && p.installed && !p.folderMissing}
+          disabled={!p.toggleable || !p.installed || p.folderMissing || !!snap?.settingsError}
           onChange={(v) => toggle(p, v)}
           label={`${p.displayName} 켜기/끄기`}
         />
@@ -70,6 +70,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         <span className={`badge ${p.surface}`} title={SURFACE[p.surface].hint}>{SURFACE[p.surface].title} · {SURFACE[p.surface].where}</span>
         {p.version && <span className="badge">v{p.version}</span>}
         {hasUpdate && <span className="badge warn">새 버전 v{p.latestVersion}</span>}
+        {p.folderMissing && <span className="badge warn" title={p.projectPath ?? ""}>설치한 폴더 없음</span>}
         {p.scope && <span className="badge">설치 범위: {p.scope === "user" ? "PC 전체" : p.scope === "local" ? "폴더·나만" : "폴더·팀 공유"}</span>}
         {p.author && <span className="badge">제작: {p.author}</span>}
         <span className="badge">슬래시 명령 {direct.length}개</span>
@@ -95,17 +96,19 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
           </select>
         )}
         {link && <button onClick={() => openUrl(link).catch((e) => toast("error", errorText(e)))}>웹에서 보기</button>}
-        {p.surface === "cli" && p.installed && hasUpdate && (
+        {p.surface === "cli" && p.installed && hasUpdate && !p.folderMissing && (
           <button disabled={!!busyLabel} onClick={() => update(p)}>업데이트</button>
         )}
         {p.surface === "cli" && p.installed && !confirmRemove && (
-          <button className="danger" disabled={!!busyLabel} onClick={() => setConfirmRemove(true)}>삭제</button>
+          <button className="danger" disabled={!!busyLabel} onClick={() => setConfirmRemove(true)}>{p.folderMissing ? "설치 기록 정리" : "삭제"}</button>
         )}
         {confirmRemove && (
-          <span className="confirm">
-            정말 삭제할까요?
-            <button className="danger" onClick={() => { setConfirmRemove(false); uninstall(p); }}>삭제</button>
-            <button onClick={() => setConfirmRemove(false)}>취소</button>
+          <span className="confirm" role="alertdialog" aria-label="삭제 확인">
+            {p.folderMissing
+              ? "같은 경로에 빈 폴더를 잠깐 만들어 기록을 지운 뒤 그 폴더도 지웁니다. 진행할까요?"
+              : "플러그인 파일과 설치 기록을 지웁니다. 나중에 다시 설치할 수 있습니다. 잠시 안 쓰려는 것이면 끄기만 해도 됩니다."}
+            <button className="danger" onClick={() => { setConfirmRemove(false); uninstall(p); }}>{p.folderMissing ? "정리" : "삭제"}</button>
+            <button autoFocus onClick={() => setConfirmRemove(false)}>취소</button>
           </span>
         )}
         {busyLabel && <span className="spinner-text">{busyLabel}…</span>}
@@ -114,7 +117,15 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
       {p.surface === "cli" && p.installed && (
         <section>
           <h3>적용 범위 · 어느 폴더에서 쓸까요?</h3>
-          <ScopeEditor plugin={p} />
+          {p.folderMissing ? (
+            <p className="note">
+              이 플러그인은 <b>{p.projectPath}</b> 폴더에서만 쓰도록 설치되었는데, 그 폴더가 삭제되어 지금은 어디에서도 동작하지 않습니다.
+              Claude Code는 폴더 범위 플러그인을 그 폴더 안에서만 지울 수 있어서, 켜기·끄기와 업데이트가 되지 않습니다.
+              위의 "설치 기록 정리"를 누르면 남은 기록을 지웁니다. 다른 곳에서 쓰려면 정리한 뒤 다시 설치하세요.
+            </p>
+          ) : (
+            <ScopeEditor plugin={p} />
+          )}
         </section>
       )}
 

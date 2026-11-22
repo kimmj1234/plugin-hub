@@ -67,6 +67,12 @@ export function UpdateStatus({ compact }: { compact?: boolean }) {
         <button className="primary" onClick={() => restartNow()}>다시 시작</button>
       </div>
     );
-  if (st.kind === "error" && !compact) return <div className="note bad small">{st.message}</div>;
+  if (st.kind === "error")
+    return compact ? (
+      // 사이드바에서도 실패를 알 수 있게 짧게 표시하고, 자세한 이유는 마우스를 올리면 보인다
+      <div className="update-pill error" title={st.message}>앱 업데이트 확인 실패 · 설정에서 다시 시도</div>
+    ) : (
+      <div className="note bad small">{st.message}</div>
+    );
   return null;
 }

@@ -5,6 +5,7 @@ mod guide;
 #[cfg(target_os = "macos")]
 mod mac_ax;
 mod model;
+mod orphan;
 mod paths;
 mod rules;
 mod scanner;
@@ -43,7 +44,7 @@ where
 }
 
 fn hub_state(app: &AppHandle) -> Result<HubState, String> {
-    Ok(store::load(&data_dir(app)?))
+    store::load(&data_dir(app)?)
 }
 
 fn allowed_project(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
@@ -53,7 +54,11 @@ fn allowed_project(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
         return Err("등록되지 않은 폴더입니다. '적용 범위'에서 먼저 폴더를 추가하세요.".into());
     }
     if !dir.is_dir() {
-        return Err(format!("폴더를 찾을 수 없습니다: {path}"));
+        return Err(format!("폴더를 찾을 수 없습니다: {path}\n옮겨졌거나 삭제되었거나, 외장 디스크·네트워크 폴더가 연결되지 않았을 수 있습니다. 삭제된 폴더라면 이 폴더에 설치한 플러그인은 '설치 기록 정리'로 정리할 수 있습니다."));
+    }
+    // 설치 기록(installed_plugins.json)에서 온 경로도 시스템·민감 폴더면 쓰지 않는다
+    if let Some(reason) = paths::forbidden_project(&paths::canonical(&dir).unwrap_or_else(|_| dir.clone())) {
+        return Err(reason.into());
     }
     Ok(dir)
 }
@@ -61,7 +66,10 @@ fn allowed_project(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
 #[tauri::command]
 async fn scan(app: AppHandle) -> Result<Snapshot, String> {
     let projects = hub_state(&app)?.projects;
-    blocking(move || Ok(scanner::scan(&projects))).await
+    let mut snap = blocking(move || Ok(scanner::scan(&projects))).await?;
+    use std::sync::atomic::Ordering;
+    snap.watcher_ok = WATCHER_STARTED.load(Ordering::SeqCst) && !watcher::FAILED.load(Ordering::SeqCst);
+    Ok(snap)
 }
 
 #[tauri::command]
@@ -120,11 +128,10 @@ async fn install_plugin(
     project_path: Option<String>,
 ) -> Result<CliResult, String> {
     cli::validate_id(&id)?;
-    if let Some(s) = &accept_sha {
-        if !s.chars().all(|c| c.is_ascii_hexdigit()) {
+    if let Some(s) = &accept_sha
+        && (s.is_empty() || !s.chars().all(|c| c.is_ascii_hexdigit())) {
             return Err("잘못된 확인 값입니다".into());
         }
-    }
     let scope = scope.unwrap_or_else(|| "user".into());
     cli::validate_scope(&scope)?;
     let dir = if scope == "user" { paths::home() } else { allowed_project(&app, project_path.as_deref().unwrap_or(""))? };
@@ -155,6 +162,27 @@ async fn uninstall_plugin(app: AppHandle, id: String, scope: Option<String>, pro
     cli::validate_id(&id)?;
     let scope = scope.unwrap_or_else(|| "user".into());
     cli::validate_scope(&scope)?;
+    // 폴더 범위로 설치한 뒤 그 폴더가 삭제된 경우: 공식 명령은 그 폴더 안에서만 삭제할 수 있으므로
+    // 같은 경로에 빈 폴더를 잠깐 만들어 실행하고 지운다. 설치 기록에 적힌 경로만 허용한다.
+    if scope != "user" {
+        let path = project_path.clone().unwrap_or_default();
+        let dir = PathBuf::from(&path);
+        if orphan::deletion_plausible(&dir) && scanner::recorded_project_paths().iter().any(|p| p == &path) {
+            if let Some(reason) = paths::forbidden_project(&dir) {
+                return Err(reason.into());
+            }
+            return blocking(move || {
+                let (mut r, removed) = orphan::with_temp_folder(&dir, |d| {
+                    cli::run_in(d, &["plugin", "uninstall", &id, "-s", &scope], Duration::from_secs(120))
+                })?;
+                if !removed {
+                    r.warning = Some(format!("정리에 쓴 임시 폴더를 지우지 못했습니다(그 사이 다른 파일이 생겼거나 사용 중). 필요 없으면 직접 지우세요: {path}"));
+                }
+                Ok(r)
+            })
+            .await;
+        }
+    }
     let dir = scoped_dir(&app, &scope, project_path.as_deref())?;
     blocking(move || cli::run_in(&dir, &["plugin", "uninstall", &id, "-s", &scope], Duration::from_secs(120))).await
 }
@@ -176,7 +204,7 @@ fn get_state(app: AppHandle) -> Result<HubState, String> {
 #[tauri::command]
 fn save_groups(app: AppHandle, groups: Vec<model::Group>) -> Result<(), String> {
     let dir = data_dir(&app)?;
-    let mut st = store::load(&dir);
+    let mut st = store::load(&dir)?;
     st.groups = groups;
     store::save(&dir, &st)
 }
@@ -190,15 +218,16 @@ fn save_prefs(app: AppHandle, prefs: model::Prefs) -> Result<(), String> {
         return Err("알 수 없는 업데이트 방식입니다".into());
     }
     let dir = data_dir(&app)?;
-    let mut st = store::load(&dir);
-    let login_changed = st.prefs.launch_at_login != prefs.launch_at_login;
+    let mut st = store::load(&dir)?;
+    // 로그인 시 실행은 먼저 실제로 바꿔 보고, 성공했을 때만 저장한다. 실패했는데 켜짐으로 저장되면
+    // 화면과 실제가 어긋나고, 다음 저장 때는 "바뀐 것 없음"으로 보여 다시 시도하지도 않는다.
+    if st.prefs.launch_at_login != prefs.launch_at_login {
+        apply_launch_at_login(&app, prefs.launch_at_login)?;
+    }
     st.prefs = prefs;
     store::save(&dir, &st)?;
     if consented(&st.prefs) {
         start_watcher_once(&app, &st.projects);
-    }
-    if login_changed {
-        apply_launch_at_login(&app, st.prefs.launch_at_login)?;
     }
     Ok(())
 }
@@ -227,7 +256,8 @@ fn consented(prefs: &model::Prefs) -> bool {
 /// 파일 감시는 사용자가 개인정보 안내에 동의한 뒤에만 시작한다 (한 번만)
 fn start_watcher_once(app: &AppHandle, projects: &[model::ProjectFolder]) {
     use std::sync::atomic::Ordering;
-    if !WATCHER_STARTED.swap(true, Ordering::SeqCst) {
+    // 처음이거나, 이전 시작이 실패했으면 다시 시도한다
+    if !WATCHER_STARTED.swap(true, Ordering::SeqCst) || watcher::FAILED.swap(false, Ordering::SeqCst) {
         watcher::start(app.clone(), projects.iter().map(|p| PathBuf::from(&p.path)).collect());
     }
 }
@@ -275,17 +305,17 @@ fn add_project(app: AppHandle, path: String) -> Result<HubState, String> {
     if !raw.is_absolute() || !raw.is_dir() {
         return Err(format!("폴더가 아닙니다: {path}"));
     }
-    let dir = std::fs::canonicalize(&raw).map_err(|e| format!("폴더를 확인하지 못했습니다: {e}"))?;
+    let dir = paths::canonical(&raw).map_err(|e| format!("폴더를 확인하지 못했습니다: {e}"))?;
     if let Some(reason) = paths::forbidden_project(&dir) {
         return Err(reason.into());
     }
     let path = dir.to_string_lossy().to_string();
     let data = data_dir(&app)?;
-    let mut st = store::load(&data);
+    let mut st = store::load(&data)?;
     if !st.projects.iter().any(|p| p.path == path) {
         let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
         st.projects.push(model::ProjectFolder { path: path.clone(), name });
-        st.projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        st.projects.sort_by_key(|a| a.name.to_lowercase());
         store::save(&data, &st)?;
     }
     watcher::watch_project(&dir);
@@ -295,7 +325,7 @@ fn add_project(app: AppHandle, path: String) -> Result<HubState, String> {
 #[tauri::command]
 fn remove_project(app: AppHandle, path: String) -> Result<HubState, String> {
     let data = data_dir(&app)?;
-    let mut st = store::load(&data);
+    let mut st = store::load(&data)?;
     st.projects.retain(|p| p.path != path);
     if st.prefs.default_install_project.as_deref() == Some(path.as_str()) {
         st.prefs.default_install_project = None;
@@ -310,11 +340,33 @@ async fn suggest_projects() -> Result<Vec<model::ProjectFolder>, String> {
     blocking(|| Ok(scanner::suggested_projects())).await
 }
 
+/// 마켓플레이스 주소 허용 목록. Windows에서는 명령이 cmd.exe를 거칠 수 있어 `%` 같은 문자를 막는다.
+pub(crate) fn valid_marketplace_source(v: &str) -> bool {
+    if v.is_empty() || v.len() > 300 || v.starts_with('-') || v.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '%' | '"' | '&' | '|' | '^' | '<' | '>' | '`' | '$' | ';')) {
+        return false;
+    }
+    let trimmed = v.strip_suffix(".git").unwrap_or(v);
+    if claude_app::valid_marketplace(trimmed) {
+        return true;
+    }
+    // git@github.com:owner/repo(.git)
+    if let Some(rest) = trimmed.strip_prefix("git@") {
+        let safe = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.');
+        if let Some((host, path)) = rest.split_once(':') {
+            return !host.is_empty() && host.chars().all(safe) && path.split('/').count() == 2 && path.split('/').all(|seg| !seg.is_empty() && seg != ".." && seg.chars().all(safe));
+        }
+        return false;
+    }
+    // 이 PC의 마켓플레이스 폴더
+    let p = std::path::Path::new(v);
+    p.is_absolute() && p.is_dir()
+}
+
 #[tauri::command]
 async fn add_marketplace(state: State<'_, AppState>, source: String) -> Result<CliResult, String> {
     let source = source.trim().to_string();
-    if source.is_empty() || source.starts_with('-') || source.chars().any(|c| c.is_whitespace()) {
-        return Err("마켓플레이스 주소 형식이 올바르지 않습니다 (예: owner/repo)".into());
+    if !valid_marketplace_source(&source) {
+        return Err("마켓플레이스 주소 형식이 올바르지 않습니다. GitHub 저장소(owner/repo), https 주소, git@ 주소, 또는 이 PC의 폴더 경로를 입력하세요.".into());
     }
     if let Ok(mut c) = state.catalog.lock() {
         *c = None;
@@ -330,15 +382,12 @@ async fn add_marketplace(state: State<'_, AppState>, source: String) -> Result<C
 
 #[tauri::command]
 async fn get_catalog(app: AppHandle, state: State<'_, AppState>, refresh: bool) -> Result<Catalog, String> {
-    if !refresh {
-        if let Ok(c) = state.catalog.lock() {
-            if let Some(cat) = c.as_ref() {
-                if scanner::now_ms().saturating_sub(cat.fetched_at) < CATALOG_TTL_MS {
+    if !refresh
+        && let Ok(c) = state.catalog.lock()
+            && let Some(cat) = c.as_ref()
+                && scanner::now_ms().saturating_sub(cat.fetched_at) < CATALOG_TTL_MS {
                     return Ok(cat.clone());
                 }
-            }
-        }
-    }
     let dir = data_dir(&app)?;
     let cat = blocking(move || catalog::load(&dir)).await?;
     if let Ok(mut c) = state.catalog.lock() {
@@ -438,8 +487,9 @@ fn open_in_claude_app(kind: String, value: Option<String>, plugin: Option<String
 }
 
 #[tauri::command]
-fn open_login() -> Result<(), String> {
-    guide::open_login_terminal()
+async fn open_login() -> Result<(), String> {
+    // CLI 버전 확인이 최대 10초 걸릴 수 있어 화면이 멈추지 않게 뒤에서 실행한다
+    blocking(guide::open_login_terminal).await
 }
 
 #[tauri::command]
@@ -527,7 +577,7 @@ pub fn run() {
         ))
         .manage(AppState::default())
         .setup(|app| {
-            let state = app.path().app_data_dir().map(|d| store::load(&d)).unwrap_or_default();
+            let state = app.path().app_data_dir().ok().and_then(|d| store::load(&d).ok()).unwrap_or_default();
             // 로그인 항목을 설정값과 맞춘다 (앱을 옮기거나 다시 설치해도 경로가 최신이 되도록).
             if let Err(e) = apply_launch_at_login(app.handle(), state.prefs.launch_at_login) {
                 eprintln!("[autostart] {e}");
@@ -545,12 +595,11 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // 창을 닫아도 앱은 계속 실행해 감시·자동 업데이트를 이어 간다. 완전히 끄려면 트레이 메뉴의 종료(macOS는 ⌘Q도 가능).
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main" {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-            }
         })
         .invoke_handler(tauri::generate_handler![
             scan,

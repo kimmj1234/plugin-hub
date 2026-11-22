@@ -70,10 +70,21 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         return Err(format!("쓰기 실패: {e}"));
     }
-    fs::rename(&tmp, &target).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        format!("저장 실패: {e}")
-    })
+    // Windows에서는 백신이나 다른 프로그램이 파일을 잠깐 잡고 있으면 이름 바꾸기가 실패한다. 몇 번 다시 시도한다.
+    let mut last = None;
+    for attempt in 0..5 {
+        match fs::rename(&tmp, &target) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last = Some(e);
+                if attempt < 4 {
+                    std::thread::sleep(std::time::Duration::from_millis(80));
+                }
+            }
+        }
+    }
+    let _ = fs::remove_file(&tmp);
+    Err(format!("저장 실패: {}", last.map(|e| e.to_string()).unwrap_or_default()))
 }
 
 /// 폴더(프로젝트) 설정 파일 경로. `.claude` 폴더나 설정 파일이 링크로 프로젝트 밖(예: ~/.claude/settings.json)을
@@ -107,7 +118,7 @@ pub fn set_enabled_in(p: &Path, id: &str, enabled: Option<bool>, backup_dir: &Pa
         if s.trim().is_empty() {
             Value::Object(Map::new())
         } else {
-            serde_json::from_str(&s).map_err(|e| {
+            serde_json::from_str(s.trim_start_matches('\u{feff}')).map_err(|e| {
                 format!("settings.json 형식이 잘못되어 수정하지 않았습니다: {e}")
             })?
         }

@@ -13,6 +13,12 @@ fn js(p: &std::path::Path) -> String {
     serde_json::Value::String(p.display().to_string()).to_string()
 }
 
+/// CLAUDE_CONFIG_DIR는 프로세스 전체 값이라, 바꾸는 테스트끼리 동시에 돌면 서로의 가짜 홈을 읽는다.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn write(p: PathBuf, s: &str) {
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(p, s).unwrap();
@@ -20,6 +26,7 @@ fn write(p: PathBuf, s: &str) {
 
 #[test]
 fn scan_rules_and_toggle_on_fake_home() {
+    let _env = env_lock();
     let home = temp_dir("home");
     let backups = temp_dir("backups");
     unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
@@ -123,12 +130,12 @@ fn scan_rules_and_toggle_on_fake_home() {
     settings::set_enabled_in(&shared, "a@mk", Some(false), &backups).unwrap();
     settings::set_enabled_in(&local, "a@mk", Some(true), &backups).unwrap();
     settings::set_enabled_in(&shared, "nothere@mk", Some(true), &backups).unwrap();
-    let snap = scanner::scan(&[folder.clone()]);
+    let snap = scanner::scan(std::slice::from_ref(&folder));
     assert!(snap.diagnostics.iter().any(|d| d.id == "installing:nothere@mk"), "폴더 설정도 방금 바뀌었으면 설치 진행 중으로 본다");
     for f in [&shared, &local] {
         fs::File::options().write(true).open(f).unwrap().set_modified(old).unwrap();
     }
-    let snap = scanner::scan(&[folder.clone()]);
+    let snap = scanner::scan(std::slice::from_ref(&folder));
     let st = &snap.projects[0];
     assert!(st.exists);
     assert_eq!(st.shared.get("a@mk"), Some(&false));
@@ -228,6 +235,12 @@ fn tracks_new_and_updated_catalog_entries() {
     assert!(b[2].change.is_new);
     assert!(b[1].change.updated);
     assert!(!b[0].change.is_new && !b[0].change.updated);
+    // 버전이 비었다가 다시 같은 값으로 채워져도 "업데이트"로 다시 표시하지 않는다.
+    let mut c = vec![entry("a@m", ""), entry("b@m", "1.1.0")];
+    track(&mut c, &dir);
+    let mut d = vec![entry("a@m", "1.0.0"), entry("b@m", "1.1.0")];
+    track(&mut d, &dir);
+    assert!(!d[0].change.updated, "빈 버전을 거쳐 같은 버전으로 돌아오면 업데이트가 아니다");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -244,6 +257,7 @@ fn rejects_unsafe_ids() {
 #[test]
 #[ignore]
 fn e2e_real_cli_isolated() {
+    let _env = env_lock();
     use crate::{catalog, cli};
     use std::time::Duration;
     let t = Duration::from_secs(180);
@@ -291,8 +305,24 @@ fn e2e_real_cli_isolated() {
     let p = snap.plugins.iter().find(|p| p.id == "hello@e2e-mkt").expect("폴더 설치 후 보여야 함");
     assert_eq!(p.scope.as_deref(), Some("local"));
     assert_eq!(p.project_path.as_deref().map(|s| std::fs::canonicalize(s).unwrap()), Some(std::fs::canonicalize(&proj).unwrap()));
-    ok(cli::run_in(&proj, &["plugin", "uninstall", "hello@e2e-mkt", "-s", "local", "--json"], t), "uninstall local");
-    let snap = scanner::scan(std::slice::from_ref(&folder));
+    assert!(!p.folder_missing);
+
+    // 폴더를 지우면: 다른 곳에서 실행한 공식 삭제는 실패하고, 앱은 '폴더 없음'으로 표시한 뒤 임시 폴더로 기록을 정리한다.
+    let recorded = PathBuf::from(p.project_path.clone().unwrap());
+    fs::remove_dir_all(&proj).unwrap();
+    let elsewhere = cli::run_in(&home, &["plugin", "uninstall", "hello@e2e-mkt", "-s", "local"], t).unwrap();
+    assert!(!elsewhere.ok, "폴더 밖에서는 지워지지 않아야 원인 설명이 맞다");
+    let snap = scanner::scan(&[]);
+    let p = snap.plugins.iter().find(|p| p.id == "hello@e2e-mkt").unwrap();
+    assert!(p.folder_missing);
+    assert!(snap.diagnostics.iter().any(|d| d.id == "folder-missing:hello@e2e-mkt"));
+    let (r, removed) = crate::orphan::with_temp_folder(&recorded, |d| {
+        cli::run_in(d, &["plugin", "uninstall", "hello@e2e-mkt", "-s", "local"], t)
+    })
+    .unwrap();
+    assert!(r.ok, "기록 정리 실패: {} {}", r.stdout, r.stderr);
+    assert!(removed && !recorded.exists(), "임시 폴더가 남으면 안 됨");
+    let snap = scanner::scan(&[]);
     assert!(snap.plugins.iter().all(|p| p.id != "hello@e2e-mkt" || !p.installed));
 
     unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
@@ -462,6 +492,7 @@ fn guide_real_generate() {
 #[test]
 #[ignore]
 fn install_race_real() {
+    let _env = env_lock();
     let bin = std::env::var("CLI_BIN").expect("CLI_BIN");
     let id = std::env::var("PLUGIN_ID").expect("PLUGIN_ID");
     let home = temp_dir("race");
@@ -556,7 +587,7 @@ fn security_defenses() {
     assert!(crate::paths::forbidden_project(std::path::Path::new("/Volumes/Ext/code/app")).is_none(), "외장 디스크 프로젝트 허용");
 
     // 5) 가이드 프롬프트 길이 제한
-    assert_eq!(crate::guide::truncate(&"가".repeat(50_000), crate::guide::CONTEXT_LIMIT).len() <= crate::guide::CONTEXT_LIMIT, true);
+    assert!(crate::guide::truncate(&"가".repeat(50_000), crate::guide::CONTEXT_LIMIT).len() <= crate::guide::CONTEXT_LIMIT);
     let _ = fs::remove_dir_all(&d);
 }
 
@@ -654,4 +685,225 @@ fn windows_cmd_rejects_newline_arguments() {
     let r = std::process::Command::new(&cmd).args(["-p", "첫 줄\n둘째 줄"]).output();
     assert!(r.is_err(), "줄바꿈 인자는 거부돼야 함 (이것이 이전 실패 원인)");
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn orphan_cleanup_only_removes_what_it_created() {
+    use crate::orphan::{only_cleanup_leftovers, topmost_missing, with_temp_folder};
+    let base = temp_dir("orphan");
+    // 없는 폴더 두 단계: 바깥 폴더까지 만들고 그대로 지운다. 이미 있던 base는 남는다.
+    let target = base.join("gone parent").join("gone proj");
+    assert_eq!(topmost_missing(&target), Some(base.join("gone parent")));
+    let (_, removed) = with_temp_folder(&target, |d| {
+        write(d.join(".claude/settings.local.json"), "{}");
+        Ok(())
+    })
+    .unwrap();
+    assert!(removed && !base.join("gone parent").exists() && base.exists());
+    // 그 사이 다른 파일이 생기면 지우지 않는다.
+    let (_, removed) = with_temp_folder(&target, |d| {
+        write(d.join("notes.txt"), "user data");
+        Ok(())
+    })
+    .unwrap();
+    assert!(!removed && target.join("notes.txt").exists());
+    assert!(!only_cleanup_leftovers(&base));
+    // 이미 있는 폴더나 상대 경로는 거부한다.
+    assert!(with_temp_folder(&target, |_| Ok(())).is_err());
+    assert!(with_temp_folder(std::path::Path::new("rel/dir"), |_| Ok(())).is_err());
+    let _ = fs::remove_dir_all(&base);
+}
+
+fn mk_plugin(id: &str, surface: &str, enabled: bool) -> crate::model::Plugin {
+    let (name, mkt) = id.split_once('@').unwrap_or((id, "m"));
+    crate::model::Plugin {
+        id: id.into(),
+        name: name.into(),
+        display_name: name.into(),
+        marketplace: mkt.into(),
+        surface: surface.into(),
+        enabled,
+        installed: true,
+        version: Some("1.0.0".into()),
+        latest_version: None,
+        scope: Some("user".into()),
+        project_path: None,
+        install_path: Some("/x".into()),
+        path_exists: true,
+        manifest_ok: true,
+        description: String::new(),
+        author: None,
+        homepage: None,
+        repository: None,
+        components: Default::default(),
+        toggleable: surface == "cli",
+        app_ref: None,
+        installed_at: None,
+        folder_missing: false,
+    }
+}
+
+fn no_settings() -> scanner::SettingsInfo {
+    scanner::SettingsInfo {
+        enabled: Default::default(),
+        extra_marketplaces: Default::default(),
+        error: None,
+        installed_error: None,
+        recently_changed: false,
+    }
+}
+
+#[test]
+fn rules_cover_every_plugin_level_diagnostic() {
+    use crate::model::{Component, Marketplace};
+    use crate::rules::{evaluate, MAX_RECOMMENDED_ENABLED};
+    let mkts = vec![Marketplace { name: "m".into(), source: "s".into(), install_location: None, plugin_count: 0 }];
+    let ids = |d: &[crate::model::Diagnostic]| d.iter().map(|x| x.id.clone()).collect::<Vec<_>>();
+
+    // 정상 플러그인 하나: 아무 진단도 없어야 한다
+    let ok = evaluate(&[mk_plugin("a@m", "cli", true)], &no_settings(), &mkts, &[]);
+    assert!(ok.is_empty(), "{:?}", ids(&ok));
+
+    // 같은 이름이 두 마켓플레이스에서 켜짐 → dup-name. 하나가 꺼져 있으면 없음
+    let mut b = mk_plugin("a@n", "cli", true);
+    b.marketplace = "m".into();
+    let d = evaluate(&[mk_plugin("a@m", "cli", true), b.clone()], &no_settings(), &mkts, &[]);
+    assert!(ids(&d).contains(&"dup-name:a".to_string()));
+    b.enabled = false;
+    let d = evaluate(&[mk_plugin("a@m", "cli", true), b], &no_settings(), &mkts, &[]);
+    assert!(!ids(&d).iter().any(|i| i.starts_with("dup-name")));
+
+    // 권장 개수 경계
+    let many = |n: usize| (0..n).map(|i| mk_plugin(&format!("p{i}@m"), "cli", true)).collect::<Vec<_>>();
+    assert!(!ids(&evaluate(&many(MAX_RECOMMENDED_ENABLED), &no_settings(), &mkts, &[])).contains(&"too-many".to_string()));
+    assert!(ids(&evaluate(&many(MAX_RECOMMENDED_ENABLED + 1), &no_settings(), &mkts, &[])).contains(&"too-many".to_string()));
+
+    // 양쪽(앱·터미널)에서 켜짐
+    let d = evaluate(&[mk_plugin("a@m", "cli", true), mk_plugin("a@m", "desktop", true)], &no_settings(), &mkts, &[]);
+    assert!(ids(&d).contains(&"both-surfaces:a@m".to_string()));
+
+    // 스킬 이름 충돌: 같은 플러그인 안의 스킬·명령 이름 중복은 충돌 아님, 다른 플러그인끼리는 충돌
+    let comp = |n: &str| Component { name: n.into(), ..Default::default() };
+    let mut x = mk_plugin("x@m", "cli", true);
+    x.components.skills.push(comp("deploy"));
+    x.components.commands.push(comp("deploy"));
+    assert!(!ids(&evaluate(&[x.clone()], &no_settings(), &mkts, &[])).iter().any(|i| i.starts_with("skill-clash")));
+    let mut y = mk_plugin("y@m", "cli", true);
+    y.components.skills.push(comp("deploy"));
+    assert!(ids(&evaluate(&[x, y], &no_settings(), &mkts, &[])).contains(&"skill-clash:deploy".to_string()));
+
+    // plugin.json 오류, 등록되지 않은 마켓플레이스
+    let mut bad = mk_plugin("b@m", "cli", true);
+    bad.manifest_ok = false;
+    let mut stray = mk_plugin("c@gone", "cli", true);
+    stray.marketplace = "gone".into();
+    let d = evaluate(&[bad, stray], &no_settings(), &mkts, &[]);
+    assert!(ids(&d).contains(&"manifest:b@m".to_string()));
+    assert!(ids(&d).contains(&"unknown-mkt:c@gone".to_string()));
+
+    // 폴더가 삭제된 폴더 범위 플러그인: 정리 버튼이 있고, 업데이트 제안은 하지 않는다
+    let mut gone = mk_plugin("g@m", "cli", true);
+    gone.scope = Some("local".into());
+    gone.project_path = Some("/nowhere/proj".into());
+    gone.folder_missing = true;
+    gone.latest_version = Some("2.0.0".into());
+    let d = evaluate(&[gone], &no_settings(), &mkts, &[]);
+    let fm = d.iter().find(|x| x.id == "folder-missing:g@m").expect("folder-missing 진단");
+    assert_eq!(fm.fix.as_ref().map(|f| f.kind.as_str()), Some("cleanup-folder"));
+    assert!(!ids(&d).iter().any(|i| i.starts_with("update:")));
+
+    // 심각도 순서: 오류 → 경고 → 안내
+    let mut dangling = mk_plugin("d@m", "cli", true);
+    dangling.installed = false;
+    let mut upd = mk_plugin("u@m", "cli", true);
+    upd.latest_version = Some("1.1.0".into());
+    let mut nomani = mk_plugin("n@m", "cli", true);
+    nomani.manifest_ok = false;
+    let d = evaluate(&[upd, nomani, dangling], &no_settings(), &mkts, &[]);
+    let rank = |s: &str| match s { "error" => 0, "warning" => 1, _ => 2 };
+    assert!(d.windows(2).all(|w| rank(&w[0].severity) <= rank(&w[1].severity)), "{:?}", ids(&d));
+}
+
+#[test]
+fn scan_tolerates_malformed_files_and_bom() {
+    let _env = env_lock();
+    let home = temp_dir("malformed");
+    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
+    // BOM이 붙은 settings.json도 읽어야 한다 (메모장·PowerShell 저장)
+    write(home.join("settings.json"), "\u{feff}{\"enabledPlugins\":{\"a@m\":true,\"x@synced\":false}}");
+    // 설치 기록의 plugins 값이 배열(잘못된 형식)이고, 플러그인 폴더의 plugin.json은 잘림
+    write(home.join("plugins/installed_plugins.json"), r#"{"version":2,"plugins":[]}"#);
+    let snap = scanner::scan(&[]);
+    assert!(snap.settings_error.is_none(), "BOM 때문에 형식 오류: {:?}", snap.settings_error);
+    assert!(snap.plugins.iter().any(|p| p.id == "a@m"));
+    assert!(!snap.plugins.iter().any(|p| p.id == "x@synced"), "Claude 앱 동기화 표시는 목록에 나오면 안 된다");
+
+    // settings.json 자체가 깨졌으면 오류 진단이 나오고 패닉하지 않는다
+    write(home.join("settings.json"), "{ broken");
+    let snap = scanner::scan(&[]);
+    assert!(snap.diagnostics.iter().any(|d| d.id == "settings-invalid"));
+
+    // BOM이 붙은 파일도 켜고 끌 수 있다 (쓰고 나면 BOM 없이 저장)
+    write(home.join("settings.json"), "\u{feff}{\"enabledPlugins\":{\"a@m\":true}}");
+    settings::set_enabled("a@m", Some(false), &home.join("backups")).unwrap();
+    let text = fs::read_to_string(home.join("settings.json")).unwrap();
+    assert!(text.contains("\"a@m\": false") && !text.starts_with('\u{feff}'));
+
+    unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn ids_scopes_and_marketplace_sources_are_validated() {
+    use crate::cli::{validate_id, validate_scope};
+    for ok in ["a@m", "org/repo", "a.b:c", "a_b@m-1"] {
+        assert!(validate_id(ok).is_ok(), "{ok}");
+    }
+    for bad in ["", "-x", "--x@m", "$(x)", "a`b", "a\nb", "a&b", "a|b", "a>b", "가@m", "a b"] {
+        assert!(validate_id(bad).is_err(), "{bad:?}");
+    }
+    assert!(["user", "project", "local"].iter().all(|s| validate_scope(s).is_ok()));
+    for bad in ["User", "", "project ", "global"] {
+        assert!(validate_scope(bad).is_err(), "{bad:?}");
+    }
+    use crate::valid_marketplace_source as v;
+    for ok in ["anthropics/claude-plugins-official", "https://github.com/a/b", "https://github.com/a/b.git", "git@github.com:a/b.git"] {
+        assert!(v(ok), "{ok}");
+    }
+    for bad in ["", "-x", "a%USERPROFILE%/b", "a/b&calc", "https://github.com/../x", "ext::sh -c x", "file:///etc", "a b/c", "git@host:../x", "relative/dir/x"] {
+        assert!(!v(bad), "{bad:?}");
+    }
+}
+
+#[test]
+fn windows_paths_are_normalized_and_system_folders_blocked() {
+    use crate::paths::{is_windows_system_path as sys, strip_verbatim};
+    assert_eq!(strip_verbatim(PathBuf::from(r"\\?\C:\Users\me\proj")), PathBuf::from(r"C:\Users\me\proj"));
+    assert_eq!(strip_verbatim(PathBuf::from(r"\\?\UNC\server\share\p")), PathBuf::from(r"\\server\share\p"));
+    assert_eq!(strip_verbatim(PathBuf::from("/Users/me/proj")), PathBuf::from("/Users/me/proj"));
+    for s in [r"C:\Windows", r"c:\windows\system32", r"D:\Program Files\x", r"C:\PROGRAMDATA\y", "C:/Program Files (x86)/z"] {
+        assert!(sys(s), "{s}");
+    }
+    for s in [r"C:\Users\me\windows-app", r"C:\WindowsApps2", r"C:\Users\me\Program Files Notes", "/Windows"] {
+        assert!(!sys(s), "{s}");
+    }
+}
+
+#[test]
+fn deleted_folder_is_told_apart_from_unplugged_drive() {
+    use crate::orphan::deletion_plausible as plausible;
+    let base = temp_dir("plausible");
+    assert!(plausible(&base.join("gone")), "상위 폴더가 있으면 삭제된 폴더");
+    assert!(plausible(&base.join("a").join("b")));
+    assert!(!plausible(&base), "있는 폴더는 삭제된 것이 아님");
+    assert!(!plausible(&base.join("..").join("x")), "..가 든 경로는 거부");
+    assert!(!plausible(std::path::Path::new("relative/x")));
+    #[cfg(unix)]
+    {
+        assert!(!plausible(std::path::Path::new("/Volumes/NoSuchDisk-pluginhub/proj")), "빠진 외장 디스크");
+        assert!(!plausible(std::path::Path::new("/no-such-root-pluginhub/proj")), "최상위 바로 아래가 없음");
+    }
+    #[cfg(windows)]
+    assert!(!plausible(std::path::Path::new(r"Q:\no-such-drive\proj")), "연결되지 않은 드라이브");
+    let _ = fs::remove_dir_all(&base);
 }

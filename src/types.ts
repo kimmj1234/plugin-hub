@@ -56,6 +56,8 @@ export interface Plugin {
   toggleable: boolean;
   appRef: string | null;
   installedAt?: string | null;
+  /** 폴더 범위로 설치했는데 그 폴더가 삭제됨: 켜기·끄기·업데이트 불가, 삭제(기록 정리)만 가능 */
+  folderMissing?: boolean;
 }
 
 export interface Marketplace {
@@ -66,7 +68,7 @@ export interface Marketplace {
 }
 
 export interface Fix {
-  kind: "remove-setting" | "reinstall" | "update" | "disable";
+  kind: "remove-setting" | "reinstall" | "update" | "disable" | "cleanup-folder";
   label: string;
 }
 
@@ -89,6 +91,8 @@ export interface Snapshot {
   projects: ProjectState[];
   settingsError: string | null;
   scannedAt: number;
+  /** 설정 파일 실시간 감시가 동작 중인지 */
+  watcherOk?: boolean;
 }
 
 export interface CatalogEntry {
@@ -114,6 +118,8 @@ export interface Catalog {
   newCount: number;
   updatedCount: number;
   firstRun: boolean;
+  /** 공식 명령으로 목록을 받지 못해 로컬 캐시를 보여 줄 때, 그 이유 */
+  fallbackReason?: string | null;
 }
 
 export interface GuideCommand {
@@ -150,6 +156,8 @@ export interface CliResult {
   stdout: string;
   stderr: string;
   needsAccept: AcceptPrompt | null;
+  /** 성공했지만 알려야 할 내용 */
+  warning?: string | null;
 }
 
 export interface Group {

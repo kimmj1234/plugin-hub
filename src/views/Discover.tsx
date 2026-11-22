@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { Modal } from "../components/Modal";
+import { selectable } from "../a11y";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, cliMessage, errorText } from "../api";
@@ -32,7 +34,7 @@ interface Row extends CatalogEntry {
 }
 
 export function Discover() {
-  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog, prefs, projects, addProject, perm, refreshPerm } = useHub();
+  const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog, prefs, projects, addProject, perm, refreshPerm, remoteError } = useHub();
   const [instScope, setInstScope] = useState<InstallScope>("user");
   const [instProject, setInstProject] = useState<string>("");
   const [query, setQuery] = useState("");
@@ -226,13 +228,13 @@ export function Discover() {
     const here = installedOn(e, surface);
     const there = installedOn(e, other);
     return (
-      <li key={e.pluginId} className={`${selectedId === e.pluginId ? "selected" : ""} ${rank ? "top" : ""}`} onClick={() => setSelectedId(e.pluginId)}>
+      <li key={e.pluginId} className={`${selectedId === e.pluginId ? "selected" : ""} ${rank ? "top" : ""}`} {...selectable(() => setSelectedId(e.pluginId), selectedId === e.pluginId)}>
         {rank && <div className="rank">{rank}</div>}
         <div className="pl-main">
           <div className="pl-name">
             {e.name}
             {e.isNew && <span className="badge new">NEW</span>}
-            {e.updated && !here && <span className="badge upd" title="최근 7일 안에 새 버전이 나왔습니다">최근 업데이트</span>}
+            {e.updated && !here && <span className="badge upd" title="공식 디렉터리에 최근 7일 안에 새 버전이 올라온 플러그인입니다. 내가 설치한 플러그인의 업데이트 알림이 아닙니다.">새 버전 출시</span>}
             {there && <span className="badge" title={`${SURFACE_LABEL[other]}에도 설치되어 있습니다`}>{SURFACE_LABEL[other]}에도 있음</span>}
           </div>
           <div className="pl-desc">{e.ko ?? e.description}</div>
@@ -379,7 +381,7 @@ export function Discover() {
           <div className="filter-more">
             <div className="seg">
               <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>모두</button>
-              <button className={filter === "fresh" ? "active" : ""} onClick={() => setFilter("fresh")}>새로 생김·업데이트{freshCount > 0 && <span className="count bad">{freshCount}</span>}</button>
+              <button className={filter === "fresh" ? "active" : ""} onClick={() => setFilter("fresh")} title="공식 디렉터리에 최근 7일 안에 새로 올라왔거나 새 버전이 나온 플러그인입니다. 내 플러그인 업데이트는 '내 플러그인'에서 확인합니다.">디렉터리 새 소식{freshCount > 0 && <span className="count">{freshCount}</span>}</button>
               <button className={filter === "installed" ? "active" : ""} onClick={() => setFilter("installed")}>설치됨</button>
             </div>
             <select value={mkt} onChange={(e) => setMkt(e.target.value)} aria-label="마켓플레이스">
@@ -396,20 +398,31 @@ export function Discover() {
           <div className="active-filters">
             {q && <button className="chip active" onClick={() => setQuery("")}>“{query.trim()}” ✕</button>}
             {cat !== "all" && <button className="chip active" onClick={() => setCat("all")}>{categoryById(cat).label} ✕</button>}
-            {filter !== "all" && <button className="chip active" onClick={() => setFilter("all")}>{filter === "fresh" ? "새로 생김·업데이트" : "설치됨"} ✕</button>}
+            {filter !== "all" && <button className="chip active" onClick={() => setFilter("all")}>{filter === "fresh" ? "디렉터리 새 소식" : "설치됨"} ✕</button>}
             {mkt && <button className="chip active" onClick={() => setMkt("")}>{mkt} ✕</button>}
             <button className="link" onClick={() => { setQuery(""); setCat("all"); setFilter("all"); setMkt(""); }}>모두 지우기</button>
           </div>
         )}
         {!moreOpen && filter === "all" && freshCount > 0 && (
-          <button className="link fresh-link" onClick={() => setFilter("fresh")}>새 플러그인·업데이트 {freshCount}개 보기</button>
+          <button className="link fresh-link" onClick={() => setFilter("fresh")}>디렉터리 새 소식 {freshCount}개 보기 (최근 7일)</button>
         )}
 
         <div className="muted small status-line">
           {catalog && `${sorted.length.toLocaleString()}개 · ${surface === "cli" ? "터미널과 Claude 앱 Code 탭에 함께 설치됩니다" : "Claude 앱 채팅·Cowork용 · '앱에 설치'로 자동 설치"}`}
           {catalog && ` · ${new Date(catalog.fetchedAt).toLocaleTimeString()} 갱신 · ${prefs.remoteRefreshMinutes > 0 ? `${prefs.remoteRefreshMinutes >= 60 ? `${prefs.remoteRefreshMinutes / 60}시간` : `${prefs.remoteRefreshMinutes}분`}마다 자동 확인` : "자동 확인 꺼짐"}`}
-          {catalog?.origin === "local-cache" && " · CLI가 없어 로컬 캐시를 보여줍니다 (설치 불가)"}
         </div>
+        {catalog?.origin === "local-cache" && (
+          <div className="note warn small">
+            Claude Code에서 최신 목록을 받지 못해, 이 PC에 저장된 목록을 보여 줍니다. 지금은 설치할 수 없습니다.
+            {catalog.fallbackReason && <div className="muted">이유: {catalog.fallbackReason}</div>}
+          </div>
+        )}
+        {remoteError && catalog?.origin !== "local-cache" && (
+          <div className="note warn small">
+            마켓플레이스 원본을 확인하지 못해, 마지막으로 받은 목록을 보여 줍니다. 인터넷 연결을 확인하고 "새로 확인"을 눌러 보세요.
+            <div className="muted">이유: {remoteError}</div>
+          </div>
+        )}
 
         {catalogError && <div className="note bad">{catalogError}</div>}
         {catalogLoading && !catalog && <div className="empty">마켓플레이스에서 목록을 불러오는 중입니다…</div>}
@@ -444,7 +457,7 @@ export function Discover() {
             <h2>
               {selected.name}
               {selected.isNew && <span className="badge new">NEW</span>}
-              {selected.updated && <span className="badge upd">업데이트</span>}
+              {selected.updated && <span className="badge upd" title="공식 디렉터리에 최근 7일 안에 새 버전이 올라온 플러그인입니다. 내가 설치한 플러그인의 업데이트 알림이 아닙니다.">새 버전 출시</span>}
             </h2>
             <div className="muted mono">{selected.pluginId}</div>
             {selected.ko && <p className="desc ko">{selected.ko}</p>}
@@ -490,23 +503,22 @@ export function Discover() {
       </div>
 
       {confirm && (
-        <div className="modal-backdrop" onClick={() => setConfirm(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{confirm.name} 설치</h3>
+        <Modal title={`${confirm.name} 설치`} onClose={() => setConfirm(null)}>
             <p>
               <code>{confirm.pluginId}</code>
               {confirm.sourceUrl && <><br />출처: <span className="mono small">{confirm.sourceUrl}</span></>}
             </p>
+            <p className="note warn small">플러그인은 내 컴퓨터에서 코드를 실행할 수 있습니다. 믿을 수 있는 출처인지 확인한 뒤 설치하세요.</p>
             <div className="scope-choice">
               <div className="small"><strong>어디에 적용할까요?</strong></div>
               {([
                 ["user", "PC 전체", "모든 폴더에서 쓰입니다"],
                 ["local", "특정 폴더 · 나만", "그 폴더에서 나에게만"],
-                ["project", "특정 폴더 · 팀 공유", "그 폴더의 git 설정으로 팀원과 공유"],
+                ["project", "특정 폴더 · 팀 공유", "그 폴더의 설정 파일에 기록되어, 폴더를 함께 쓰는 팀원(git)도 쓰게 됩니다"],
               ] as [InstallScope, string, string][]).map(([v, l, d]) => (
                 <label key={v} className="radio">
                   <input type="radio" name="inst-scope" checked={instScope === v} onChange={() => setInstScope(v)} />
-                  <span><strong>{l}</strong> <span className="muted small">— {d}</span></span>
+                  <span><strong>{l}</strong> <span className="muted small">· {d}</span></span>
                 </label>
               ))}
               {instScope !== "user" && (
@@ -520,25 +532,21 @@ export function Discover() {
               )}
             </div>
             <div className="actions end">
-              <button onClick={() => setConfirm(null)}>취소</button>
+              <button data-autofocus onClick={() => setConfirm(null)}>취소</button>
               <button className="primary" onClick={() => doInstall(confirm)}>설치</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {accept && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h3>추가 확인이 필요합니다</h3>
+        <Modal title="추가 확인이 필요합니다" onClose={() => setAccept(null)} dismissOnBackdrop={false}>
             <p>이 플러그인은 설치 과정에서 마켓플레이스가 지정한 명령을 실행합니다. 아래 내용을 확인한 뒤에만 진행하세요.</p>
             <pre className="mono small">{accept.prompt.detail}</pre>
             <div className="actions end">
-              <button onClick={() => setAccept(null)}>취소</button>
+              <button data-autofocus onClick={() => setAccept(null)}>취소</button>
               <button className="danger" onClick={() => doInstall(accept.entry, accept.prompt.sha256)}>확인하고 설치</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

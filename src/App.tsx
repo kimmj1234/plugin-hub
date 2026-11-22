@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Toast } from "./hub";
 import { HubProvider, PRIVACY_VERSION, useHub } from "./hub";
 import { Setup } from "./views/Setup";
 import { UpdateStatus } from "./components/AppUpdatePanel";
@@ -18,8 +19,25 @@ const ICONS: Record<View, string> = {
   settings: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4",
 };
 
+const TOAST_LABEL: Record<Toast["kind"], string> = { ok: "완료", error: "오류", warning: "주의", info: "알림" };
+
+/** 알림: 오류·주의는 화면 읽기 프로그램이 바로 읽고(alert), 닫기 버튼으로 키보드로도 닫을 수 있다 */
+function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) => void }) {
+  return (
+    <div className="toasts">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast ${t.kind}`} role={t.kind === "error" || t.kind === "warning" ? "alert" : "status"}>
+          <span className="toast-kind">{TOAST_LABEL[t.kind]}</span>
+          <span className="toast-text">{t.text}</span>
+          <button className="toast-close" onClick={() => dismiss(t.id)} aria-label="알림 닫기">×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Shell() {
-  const { snap, loading, loadError, toasts, dismissToast, refresh, catalog, prefs, prefsLoaded } = useHub();
+  const { snap, loading, loadError, toasts, dismissToast, refresh, prefs, prefsLoaded, stateError, reloadState } = useHub();
   const [setupOpen, setSetupOpen] = useState(false);
   useEffect(() => {
     const open = () => setSetupOpen(true);
@@ -59,24 +77,30 @@ function Shell() {
   const [pluginsTab, setPluginsTab] = useState<PluginsTab>("list");
   const problems = snap?.diagnostics.filter((d) => d.severity !== "info").length ?? 0;
   const cliCount = snap?.plugins.filter((p) => p.surface === "cli").length ?? 0;
-  const freshCount = catalog?.entries.filter((e) => e.isNew || e.updated).length ?? 0;
 
   const nav: { key: View; label: string; badge?: number; bad?: boolean }[] = [
     { key: "home", label: "홈", badge: problems || undefined, bad: problems > 0 },
     { key: "plugins", label: "내 플러그인", badge: cliCount },
-    { key: "discover", label: "플러그인 찾기", badge: freshCount || undefined },
+    { key: "discover", label: "플러그인 찾기" },
     { key: "settings", label: "설정" },
   ];
+
+  if (stateError) {
+    return (
+      <div className="page state-error">
+        <h2>앱 설정을 읽지 못했습니다</h2>
+        <p className="note bad">{stateError}</p>
+        <p className="muted">등록한 폴더와 설정을 지키기 위해, 읽을 수 있을 때까지 아무것도 바꾸지 않습니다. 잠시 후 다시 시도하세요.</p>
+        <button className="primary" onClick={reloadState}>다시 시도</button>
+      </div>
+    );
+  }
 
   if (needSetup || setupOpen) {
     return (
       <>
         <Setup reopen={!needSetup} onDone={() => setSetupOpen(false)} />
-        <div className="toasts" role="status">
-          {toasts.map((t) => (
-            <div key={t.id} className={`toast ${t.kind}`} onClick={() => dismissToast(t.id)}>{t.text}</div>
-          ))}
-        </div>
+        <Toasts toasts={toasts} dismiss={dismissToast} />
       </>
     );
   }
@@ -102,7 +126,15 @@ function Shell() {
         </nav>
         <div className="sidebar-foot">
           <UpdateStatus compact />
-          <span className="live-dot" /> 실시간 감시 중
+          {snap?.watcherOk === false ? (
+            <span title="설정 파일 변경을 자동으로 감지하지 못하고 있습니다. 창으로 돌아올 때마다 다시 검사합니다.">
+              <span className="live-dot off" /> 실시간 감시 꺼짐
+            </span>
+          ) : (
+            <>
+              <span className="live-dot" /> 실시간 감시 중
+            </>
+          )}
           {snap && <div className="muted small">{new Date(snap.scannedAt).toLocaleTimeString()} 갱신</div>}
         </div>
       </aside>
@@ -121,13 +153,7 @@ function Shell() {
         {snap && view === "discover" && <Discover />}
       </main>
 
-      <div className="toasts" role="status">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`} onClick={() => dismissToast(t.id)}>
-            {t.text}
-          </div>
-        ))}
-      </div>
+      <Toasts toasts={toasts} dismiss={dismissToast} />
     </div>
   );
 }

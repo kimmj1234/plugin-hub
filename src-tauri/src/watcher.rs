@@ -39,11 +39,10 @@ fn control() -> &'static Mutex<Option<mpsc::Sender<Msg>>> {
 }
 
 pub fn watch_project(dir: &Path) {
-    if let Ok(g) = control().lock() {
-        if let Some(tx) = g.as_ref() {
+    if let Ok(g) = control().lock()
+        && let Some(tx) = g.as_ref() {
             let _ = tx.send(Msg::AddProject(dir.to_path_buf()));
         }
-    }
 }
 
 struct Targets {
@@ -88,6 +87,9 @@ impl Targets {
     }
 }
 
+/// 감시를 시작하지 못했으면 true. 다음에 다시 시작을 시도하고, 화면에는 "실시간 감시 꺼짐"으로 보인다.
+pub static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn start(app: AppHandle, projects: Vec<PathBuf>) {
     let (tx, rx) = mpsc::channel::<Msg>();
     if let Ok(mut g) = control().lock() {
@@ -103,6 +105,7 @@ pub fn start(app: AppHandle, projects: Vec<PathBuf>) {
             Ok(w) => w,
             Err(e) => {
                 eprintln!("[watcher] 시작 실패: {e}");
+                FAILED.store(true, std::sync::atomic::Ordering::SeqCst);
                 return;
             }
         };

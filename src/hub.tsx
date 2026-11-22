@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
 import type { Catalog, Diagnostic, Group, InstallScope, Permissions, Plugin, PluginUsage, Prefs, ProjectFolder, Snapshot } from "./types";
@@ -32,7 +32,7 @@ interface HubCtx {
   refreshCatalog: (remote: boolean) => Promise<void>;
   projects: ProjectFolder[];
   prefs: Prefs;
-  setPrefs: (p: Prefs) => Promise<void>;
+  setPrefs: (p: Prefs) => Promise<boolean>;
   addProject: (path: string) => Promise<boolean>;
   removeProject: (path: string) => Promise<void>;
   setFolder: (pluginId: string, projectPath: string, scope: "project" | "local", value: boolean | null) => Promise<void>;
@@ -43,6 +43,11 @@ interface HubCtx {
   usageDays: number;
   usageSessions: number;
   refreshUsage: () => Promise<void>;
+  /** 앱 설정(hub-state.json)을 읽지 못했을 때 */
+  stateError: string | null;
+  reloadState: () => void;
+  /** 마지막 원본(마켓플레이스) 확인이 실패한 이유 */
+  remoteError: string | null;
 }
 
 export const USAGE_DAYS = 30;
@@ -84,12 +89,17 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectFolder[]>([]);
   const [prefs, setPrefsState] = useState<Prefs>(DEFAULT_PREFS);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [stateError, setStateError] = useState<string | null>(null);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const prefsRef = useRef<Prefs>(DEFAULT_PREFS);
+  prefsRef.current = prefs;
+  const busyRef = useRef<Record<string, string>>({});
   const [perm, setPerm] = useState<Permissions | null>(null);
   // 개인정보 안내에 동의하기 전에는 파일 검사·CLI 실행·네트워크 확인을 하나도 하지 않는다.
   const consented = prefsLoaded && prefs.onboardingDone && prefs.privacyAck >= PRIVACY_VERSION;
   const toastId = useRef(0);
   const scanSeq = useRef(0);
-  const catalogAgain = useRef(false);
+  const catalogAgain = useRef<boolean | null>(null);
 
   const toast = useCallback((kind: Toast["kind"], text: string) => {
     const id = ++toastId.current;
@@ -150,7 +160,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
   }, [toast]);
   refreshRef.current = refresh;
 
-  useEffect(() => {
+  // 앱 설정을 읽지 못했을 때 기본값으로 넘어가면 처음 설정 화면이 다시 나오고, 거기서 저장하면
+  // 등록한 폴더·묶음·동의 기록을 덮어쓴다. 그래서 실패하면 오류와 "다시 시도"를 보여 준다.
+  const reloadState = useCallback(() => {
+    setStateError(null);
     api
       .getState()
       .then((s) => {
@@ -159,8 +172,11 @@ export function HubProvider({ children }: { children: ReactNode }) {
         setPrefsState(s.prefs);
         setPrefsLoaded(true);
       })
-      .catch(() => setPrefsLoaded(true));
+      .catch((e) => setStateError(errorText(e)));
   }, []);
+  useEffect(() => {
+    reloadState();
+  }, [reloadState]);
 
   useEffect(() => {
     if (!consented) return;
@@ -176,7 +192,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const withBusy = useCallback(
     async <T,>(key: string, label: string, fn: () => Promise<T>): Promise<T | undefined> => {
-      setBusy((b) => ({ ...b, [key]: label }));
+      setBusy((b) => (busyRef.current = { ...b, [key]: label }));
       try {
         return await fn();
       } catch (e) {
@@ -186,6 +202,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
         setBusy((b) => {
           const n = { ...b };
           delete n[key];
+          busyRef.current = n;
           return n;
         });
       }
@@ -195,6 +212,12 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const toggle = useCallback(
     async (p: Plugin, enabled: boolean) => {
+      if (p.folderMissing) {
+        toast("error", `${p.displayName}: 설치한 폴더가 삭제되어 켜고 끌 수 없습니다. '설치 기록 정리'로 정리하세요.`);
+        return;
+      }
+      // 이미 진행 중인 검사 결과가 늦게 도착해 방금 바꾼 스위치를 되돌리지 않게, 그 결과는 버린다
+      ++scanSeq.current;
       setSnap((s) =>
         s ? { ...s, plugins: s.plugins.map((x) => (x.id === p.id && x.surface === p.surface ? { ...x, enabled } : x)) } : s,
       );
@@ -211,15 +234,18 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const toggleMany = useCallback(
     async (ps: Plugin[], enabled: boolean) => {
-      const targets = ps.filter((p) => p.toggleable && p.enabled !== enabled);
+      const targets = ps.filter((p) => p.toggleable && !p.folderMissing && p.enabled !== enabled);
+      let done = 0;
       for (const p of targets) {
         try {
           await api.setEnabled(p.id, enabled, p.scope, p.projectPath);
+          done++;
         } catch (e) {
           toast("error", `${p.displayName}: ${errorText(e)}`);
         }
       }
-      if (targets.length) toast("ok", `${targets.length}개 플러그인을 ${enabled ? "켰" : "껐"}습니다`);
+      const failed = targets.length - done;
+      if (done) toast(failed ? "warning" : "ok", `${done}개 플러그인을 ${enabled ? "켰" : "껐"}습니다${failed ? ` · ${failed}개는 실패` : ""}`);
       refresh();
     },
     [refresh, toast],
@@ -228,6 +254,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const reportCli = useCallback(
     (label: string, r: { ok: boolean } & Parameters<typeof cliMessage>[0]) => {
       toast(r.ok ? "ok" : "error", `${label}: ${cliMessage(r)}`);
+      if (r.warning) toast("warning", r.warning);
     },
     [toast],
   );
@@ -276,16 +303,20 @@ export function HubProvider({ children }: { children: ReactNode }) {
         case "disable":
           if (p) await toggle(p, false);
           break;
+        case "cleanup-folder":
+          if (p) await uninstall(p);
+          break;
       }
       refresh();
     },
-    [snap, withBusy, toast, reportCli, update, toggle, refresh],
+    [snap, withBusy, toast, reportCli, update, toggle, uninstall, refresh],
   );
 
   const refreshCatalog = useCallback(
     async (remote: boolean) => {
       if (catalogBusy.current) {
-        catalogAgain.current = true;
+        // 진행 중에 원본 확인 요청이 오면, 끝난 뒤 다시 할 때도 원본 확인으로 한다
+        catalogAgain.current = (catalogAgain.current ?? false) || remote;
         return;
       }
       catalogBusy.current = true;
@@ -294,8 +325,9 @@ export function HubProvider({ children }: { children: ReactNode }) {
         if (remote) {
           try {
             await api.updateMarketplaces();
+            setRemoteError(null);
           } catch (e) {
-            console.warn(e);
+            setRemoteError(errorText(e));
           }
         }
         const c = await api.catalog(true);
@@ -314,9 +346,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
       } finally {
         catalogBusy.current = false;
         setCatalogLoading(false);
-        if (catalogAgain.current) {
-          catalogAgain.current = false;
-          setTimeout(() => refreshCatalog(false), 0);
+        if (catalogAgain.current !== null) {
+          const again = catalogAgain.current;
+          catalogAgain.current = null;
+          setTimeout(() => refreshCatalog(again), 0);
         }
       }
     },
@@ -344,19 +377,24 @@ export function HubProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!prefs.autoUpdatePlugins || !snap || autoRunning.current) return;
     const due = snap.plugins.filter(
-      (p) => p.surface === "cli" && p.version && p.latestVersion && p.latestVersion !== p.version && !autoTried.current.has(`${p.id}@${p.latestVersion}`),
+      (p) => p.surface === "cli" && !p.folderMissing && !busyRef.current[p.id] && p.version && p.latestVersion && p.latestVersion !== p.version && !autoTried.current.has(`${p.id}@${p.latestVersion}`),
     );
     if (!due.length) return;
     autoRunning.current = true;
     (async () => {
       let ok = 0;
-      for (const p of due) {
-        autoTried.current.add(`${p.id}@${p.latestVersion}`);
-        const r = await withBusy(p.id, "자동 업데이트 중", () => api.update(p.id, p.scope, p.projectPath));
-        if (r?.ok) ok++;
-        else if (r) reportCli(`${p.displayName} 자동 업데이트`, r);
+      try {
+        for (const p of due) {
+          autoTried.current.add(`${p.id}@${p.latestVersion}`);
+          // 사용자가 그 사이 같은 플러그인을 지우거나 업데이트하고 있으면 건너뛴다
+          if (busyRef.current[p.id]) continue;
+          const r = await withBusy(p.id, "자동 업데이트 중", () => api.update(p.id, p.scope, p.projectPath));
+          if (r?.ok) ok++;
+          else if (r) reportCli(`${p.displayName} 자동 업데이트`, r);
+        }
+      } finally {
+        autoRunning.current = false;
       }
-      autoRunning.current = false;
       if (ok) toast("ok", `플러그인 ${ok}개를 자동으로 업데이트했습니다 · 새 Claude Code 세션부터 적용됩니다`);
       refresh();
     })();
@@ -375,13 +413,16 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [usage, setUsage] = useState<Record<string, PluginUsage> | null>(null);
   const [usageSessions, setUsageSessions] = useState(0);
   const cliNames = snap ? [...new Set(snap.plugins.filter((p) => p.surface === "cli").flatMap((p) => [p.name, p.displayName]))].sort().join("\n") : "";
+  const usageSeq = useRef(0);
   const refreshUsage = useCallback(async () => {
+    const seq = ++usageSeq.current;
     if (!consented || !cliNames || !prefs.usageConsent) {
       setUsage(null);
       return;
     }
     try {
       const r = await api.usage(cliNames.split("\n"), USAGE_DAYS);
+      if (seq !== usageSeq.current) return; // 더 최근 요청의 결과를 덮어쓰지 않는다
       setUsage(Object.fromEntries(r.plugins.map((u) => [u.plugin, u])));
       setUsageSessions(r.sessions);
     } catch (e) {
@@ -413,12 +454,17 @@ export function HubProvider({ children }: { children: ReactNode }) {
   }, [refreshPerm, consented]);
 
   const setPrefs = useCallback(
-    async (p: Prefs) => {
+    async (p: Prefs): Promise<boolean> => {
+      const before = prefsRef.current;
       setPrefsState(p);
       try {
         await api.savePrefs(p);
+        return true;
       } catch (e) {
+        // 저장에 실패하면 화면도 되돌린다 (예: 로그인 시 실행을 켜지 못했는데 켜짐으로 보이지 않게)
+        setPrefsState(before);
         toast("error", `설정 저장 실패: ${errorText(e)}`);
+        return false;
       }
     },
     [toast],
@@ -472,16 +518,19 @@ export function HubProvider({ children }: { children: ReactNode }) {
       try {
         await api.saveGroups(g);
       } catch (e) {
-        toast("error", `폴더 저장 실패: ${errorText(e)}`);
+        toast("error", `묶음 저장 실패: ${errorText(e)}`);
       }
     },
     [toast],
   );
 
+  const value = useMemo<HubCtx>(
+    () => ({ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder, prefsLoaded, perm, refreshPerm, usage, usageDays: USAGE_DAYS, usageSessions, refreshUsage, stateError, reloadState, remoteError }),
+    [snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder, prefsLoaded, perm, refreshPerm, usage, usageSessions, refreshUsage, stateError, reloadState, remoteError],
+  );
+
   return (
-    <Ctx.Provider
-      value={{ snap, loading, loadError, groups, toasts, busy, refresh, toast, dismissToast, toggle, toggleMany, runFix, uninstall, update, setGroups, withBusy, catalog, catalogLoading, catalogError, refreshCatalog, projects, prefs, setPrefs, addProject, removeProject, setFolder, prefsLoaded, perm, refreshPerm, usage, usageDays: USAGE_DAYS, usageSessions, refreshUsage }}
-    >
+    <Ctx.Provider value={value}>
       {children}
     </Ctx.Provider>
   );

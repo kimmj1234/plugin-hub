@@ -1,4 +1,5 @@
 import { useHub } from "../hub";
+import { selectable } from "../a11y";
 import { DiagnosticItem } from "../components/DiagnosticItem";
 import { Toggle } from "../components/Toggle";
 import { koFor } from "../catalogMeta";
@@ -66,6 +67,12 @@ function Diet({ go }: { go: (v: "installed") => void }) {
           </div>
         ) : !usage ? (
           <p className="muted small">최근 {usageDays}일 사용 기록을 분석하는 중…</p>
+        ) : usageSessions === 0 ? (
+          // 대화 기록을 하나도 못 찾았으면 "모두 안 씀"이 아니라 "판단할 기록 없음"이다. 끄라고 권하지 않는다.
+          <p className="small">
+            <strong>아직 판단할 사용 기록이 없습니다.</strong>{" "}
+            <span className="muted">최근 {usageDays}일 동안의 Claude Code 대화 기록을 찾지 못했습니다. Claude Code를 쓰고 나면 안 쓰는 플러그인을 알려 드립니다.</span>
+          </p>
         ) : unused.length === 0 ? (
           <p className="small">
             <strong>지금 끌 만한 플러그인이 없습니다.</strong>{" "}
@@ -95,7 +102,7 @@ function Diet({ go }: { go: (v: "installed") => void }) {
                     <div className="pl-desc">{koFor(p) || p.description}</div>
                   </div>
                   <span className="muted small">~{formatTokens(alwaysOnTokens(p))}</span>
-                  <Toggle checked={p.enabled} disabled={!p.toggleable || !!snap.settingsError} onChange={(v) => toggle(p, v)} label={`${p.displayName} 켜기/끄기`} />
+                  <Toggle checked={p.enabled} disabled={!p.toggleable || p.folderMissing || !!snap.settingsError} onChange={(v) => toggle(p, v)} label={`${p.displayName} 켜기/끄기`} />
                 </li>
               ))}
             </ul>
@@ -188,7 +195,7 @@ export function Dashboard({ go }: { go: (v: HomeTarget) => void }) {
             계정 플러그인 {desk.length}개 · 켜짐 {desk.filter((p) => p.enabled).length}개
           </div>
         </div>
-        <div className="card clickable" onClick={() => go("discover")}>
+        <div className="card clickable" role="button" {...selectable(() => go("discover"), false)}>
           <div className="card-label">새 플러그인</div>
           <div className="card-value">찾아보기 →</div>
           <div className="muted small">용도별 인기 플러그인과 한국어 설명</div>

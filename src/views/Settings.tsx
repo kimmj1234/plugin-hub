@@ -40,7 +40,7 @@ export function Settings() {
             />
             <span>
               <strong>{s.label}</strong>
-              <span className="muted small"> — {s.desc}</span>
+              <span className="muted small"> · {s.desc}</span>
             </span>
           </label>
         ))}
@@ -74,9 +74,9 @@ export function Settings() {
       <section className="settings-block">
         <h2>권한과 준비 상태</h2>
         <ul className="plain small">
-          <li>Claude Code: {perm?.cli ? "준비됨" : "설정 필요 — 설치·삭제·업데이트를 쓸 수 없습니다"}</li>
-          {perm?.os === "macos" && <li>손쉬운 사용 권한: {perm.accessibility ? "허용됨" : "설정 필요 — Claude 채팅 플러그인 자동 설치를 쓸 수 없습니다"}</li>}
-          <li>Claude 앱: {perm?.desktopInstalled ? "설치됨" : "없음 — Claude 채팅 플러그인을 쓸 수 없습니다"}</li>
+          <li>Claude Code: {perm?.cli ? "준비됨" : "설정 필요 · 설치·삭제·업데이트를 쓸 수 없습니다"}</li>
+          {perm?.os === "macos" && <li>손쉬운 사용 권한: {perm.accessibility ? "허용됨" : "설정 필요 · Claude 채팅 플러그인 자동 설치를 쓸 수 없습니다"}</li>}
+          <li>Claude 앱: {perm?.desktopInstalled ? "설치됨" : "없음 · Claude 채팅 플러그인을 쓸 수 없습니다"}</li>
         </ul>
         <button onClick={() => window.dispatchEvent(new Event("hub:open-setup"))}>권한·설정 점검 열기</button>
       </section>
@@ -87,7 +87,7 @@ export function Settings() {
           <input type="checkbox" checked={prefs.usageConsent} onChange={(e) => setPrefs({ ...prefs, usageConsent: e.target.checked })} />
           <span>
             <strong>사용 분석</strong>
-            <span className="muted small"> — 이 PC의 Claude Code 대화 기록에서 플러그인 호출 횟수만 셉니다. 대화 내용은 저장하거나 보내지 않습니다. 끄면 기록을 읽지 않습니다.</span>
+            <span className="muted small"> · 이 PC의 Claude Code 대화 기록에서 플러그인 호출 횟수만 셉니다. 대화 내용은 저장하거나 보내지 않습니다. 끄면 기록을 읽지 않습니다.</span>
           </span>
         </label>
         <p className="muted small">
@@ -104,14 +104,14 @@ export function Settings() {
           <input type="checkbox" checked={prefs.autoUpdatePlugins} onChange={(e) => setPrefs({ ...prefs, autoUpdatePlugins: e.target.checked })} />
           <span>
             <strong>플러그인 업데이트 자동 설치</strong>
-            <span className="muted small"> — Claude Code(터미널·Code 탭) 플러그인에 새 버전이 나오면 확인 없이 바로 업데이트합니다. 새 세션부터 적용됩니다.</span>
+            <span className="muted small"> · Claude Code(터미널·Code 탭) 플러그인에 새 버전이 나오면 확인 없이 바로 업데이트합니다. 새 세션부터 적용됩니다.</span>
           </span>
         </label>
         <label className="radio">
           <input type="checkbox" checked={prefs.launchAtLogin} onChange={(e) => setPrefs({ ...prefs, launchAtLogin: e.target.checked })} />
           <span>
             <strong>로그인할 때 자동 실행</strong>
-            <span className="muted small"> — Mac을 켜면 창 없이 뒤에서 실행되어 새 버전 확인과 경고 감지를 이어 갑니다.</span>
+            <span className="muted small"> · 컴퓨터를 켜면 창 없이 뒤에서 실행되어 새 버전 확인과 경고 감지를 이어 갑니다.</span>
           </span>
         </label>
         <p className="muted small">창을 닫아도 앱은 계속 실행됩니다. 트레이(macOS는 메뉴 막대) 아이콘이나 앱 아이콘을 누르면 다시 열리고, 완전히 끄려면 트레이 메뉴의 "Plugin Hub 종료"를 누르세요(macOS는 ⌘Q도 가능).</p>

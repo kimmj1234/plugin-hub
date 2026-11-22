@@ -41,7 +41,8 @@ fn parse_json(p: &Path, s: &str) -> Result<Value, String> {
     if s.trim().is_empty() {
         return Ok(Value::Object(Map::new()));
     }
-    serde_json::from_str(s).map_err(|e| format!("{} 형식 오류: {e}", p.display()))
+    // 메모장·PowerShell로 저장하면 앞에 BOM이 붙는다. 그대로 두면 형식 오류로 읽지 못한다.
+    serde_json::from_str(s.trim_start_matches('\u{feff}')).map_err(|e| format!("{} 형식 오류: {e}", p.display()))
 }
 
 /// 사용자·Claude가 관리하는 설정 파일 (dotfiles 관리용 심볼릭 링크 허용)
@@ -222,11 +223,10 @@ pub fn components(root: &Path, manifest: &Value) -> Components {
         agents: collect(root, manifest, "agents", "agents", None),
         ..Default::default()
     };
-    if let Ok(h) = read_plugin_json(&root.join("hooks").join("hooks.json")) {
-        if let Some(m) = h.get("hooks").and_then(|x| x.as_object()) {
+    if let Ok(h) = read_plugin_json(&root.join("hooks").join("hooks.json"))
+        && let Some(m) = h.get("hooks").and_then(|x| x.as_object()) {
             c.hooks = m.keys().cloned().collect();
         }
-    }
     if let Some(m) = manifest.get("hooks").and_then(|x| x.as_object()) {
         for k in m.keys() {
             if !c.hooks.contains(k) {
@@ -369,8 +369,8 @@ fn read_marketplaces() -> (Vec<Marketplace>, HashMap<String, String>) {
         let mut count = 0;
         if let Some(l) = &loc {
             let mf = PathBuf::from(l).join(".claude-plugin").join("marketplace.json");
-            if let Ok(mv) = read_plugin_json(&mf) {
-                if let Some(arr) = mv.get("plugins").and_then(|x| x.as_array()) {
+            if let Ok(mv) = read_plugin_json(&mf)
+                && let Some(arr) = mv.get("plugins").and_then(|x| x.as_array()) {
                     count = arr.len();
                     for p in arr {
                         if let (Some(n), Some(ver)) = (str_of(p, "name"), str_of(p, "version")) {
@@ -378,7 +378,6 @@ fn read_marketplaces() -> (Vec<Marketplace>, HashMap<String, String>) {
                         }
                     }
                 }
-            }
         }
         list.push(Marketplace {
             name: name.clone(),
@@ -417,6 +416,10 @@ fn build_plugin(
         .map(|p| components(Path::new(p), &man.value))
         .unwrap_or_default();
     let display_name = str_of(&man.value, "name").unwrap_or_else(|| name.clone());
+    let scope = install.and_then(|i| str_of(i, "scope"));
+    let project_path = install.and_then(|i| str_of(i, "projectPath"));
+    let folder_missing = matches!(scope.as_deref(), Some("project") | Some("local"))
+        && project_path.as_deref().is_some_and(|p| crate::orphan::deletion_plausible(Path::new(p)));
     Plugin {
         id: id.to_string(),
         name,
@@ -429,8 +432,8 @@ fn build_plugin(
             .and_then(|i| str_of(i, "version"))
             .or_else(|| str_of(&man.value, "version")),
         latest_version: None,
-        scope: install.and_then(|i| str_of(i, "scope")),
-        project_path: install.and_then(|i| str_of(i, "projectPath")),
+        scope,
+        project_path,
         install_path,
         path_exists,
         manifest_ok: man.ok,
@@ -442,6 +445,7 @@ fn build_plugin(
         toggleable: surface == "cli",
         app_ref: None,
         installed_at: install.and_then(|i| str_of(i, "installedAt")),
+        folder_missing,
     }
 }
 
@@ -490,7 +494,12 @@ fn cli_plugins(settings: &mut SettingsInfo, latest: &HashMap<String, String>) ->
         }
     }
     let mut ids: Vec<String> = installed.keys().cloned().collect();
-    for k in settings.enabled.keys() {
+    for (k, on) in &settings.enabled {
+        // "이름@synced": false 는 Claude 앱이 계정 동기화 플러그인을 Claude Code에서 끄려고 적어 두는 표시다.
+        // 설치된 것이 아니고 아무 효과도 없으므로 "설치되지 않은 플러그인"으로 보여 주지 않는다.
+        if !on && k.ends_with("@synced") {
+            continue;
+        }
         if !installed.contains_key(k) {
             ids.push(k.clone());
         }
@@ -554,7 +563,7 @@ fn desktop_plugins() -> Vec<Plugin> {
             }
         }
     }
-    out.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+    out.sort_by_key(|a| a.display_name.to_lowercase());
     out
 }
 
@@ -649,5 +658,6 @@ pub fn scan(projects: &[ProjectFolder]) -> Snapshot {
         projects,
         settings_error: settings.error,
         scanned_at: now_ms(),
+        watcher_ok: true,
     }
 }

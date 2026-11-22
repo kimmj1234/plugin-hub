@@ -174,13 +174,20 @@ struct Seen {
     updated_at: HashMap<String, u64>,
 }
 
+static SEEN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn track_changes(entries: &mut [CatalogEntry], data_dir: &Path) -> (usize, usize, bool) {
+    // 목록을 동시에 두 번 불러오면(화면 두 곳, 파일 변경 이벤트) 같은 기록 파일을 동시에 쓰게 되므로 한 번에 하나만.
+    let _guard = SEEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let file = data_dir.join("catalog-seen.json");
-    let first_run = !file.exists();
-    let mut seen: Seen = fs::read_to_string(&file)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let parsed: Option<Seen> = fs::read_to_string(&file).ok().and_then(|s| serde_json::from_str(&s).ok());
+    if parsed.is_none() && file.exists() {
+        // 깨진 기록은 첫 실행처럼 다룬다. 그러지 않으면 모든 플러그인이 7일 동안 "NEW"로 보인다.
+        eprintln!("[catalog] catalog-seen.json을 읽지 못해 처음부터 다시 기록합니다");
+        let _ = fs::rename(&file, data_dir.join("catalog-seen.broken.json"));
+    }
+    let first_run = parsed.is_none();
+    let mut seen = parsed.unwrap_or_default();
     let now = now_ms();
     let (mut new_count, mut updated_count) = (0, 0);
     for e in entries.iter_mut() {
@@ -189,13 +196,17 @@ fn track_changes(entries: &mut [CatalogEntry], data_dir: &Path) -> (usize, usize
             .first_seen
             .entry(e.plugin_id.clone())
             .or_insert(if first_run { 0 } else { now });
-        match seen.versions.get(&e.plugin_id) {
-            Some(old) if old != &ver && !ver.is_empty() => {
-                seen.updated_at.insert(e.plugin_id.clone(), now);
+        // 버전을 모르는 응답(빈 값)은 기록을 덮어쓰지 않는다. 조회 경로(공식 명령/로컬 캐시)에 따라
+        // 버전이 비었다 채워졌다 하면 같은 플러그인이 계속 "업데이트"로 다시 표시되기 때문이다.
+        if !ver.is_empty() {
+            match seen.versions.get(&e.plugin_id) {
+                Some(old) if !old.is_empty() && old != &ver => {
+                    seen.updated_at.insert(e.plugin_id.clone(), now);
+                }
+                _ => {}
             }
-            _ => {}
+            seen.versions.insert(e.plugin_id.clone(), ver);
         }
-        seen.versions.insert(e.plugin_id.clone(), ver);
         let is_new = first > 0 && now.saturating_sub(first) < NEW_BADGE_MS;
         let updated = !is_new
             && seen
@@ -211,25 +222,22 @@ fn track_changes(entries: &mut [CatalogEntry], data_dir: &Path) -> (usize, usize
             first_seen: first,
         };
     }
-    let _ = fs::create_dir_all(data_dir);
-    if let Ok(text) = serde_json::to_string(&seen) {
-        let tmp = file.with_extension("json.tmp");
-        if fs::write(&tmp, text).is_ok() {
-            let _ = fs::rename(&tmp, &file);
+    if let Ok(text) = serde_json::to_string(&seen)
+        && let Err(e) = crate::settings::write_atomic(&file, &text) {
+            eprintln!("[catalog] catalog-seen.json 저장 실패: {e}");
         }
-    }
     (new_count, updated_count, first_run)
 }
 
 pub fn load(data_dir: &Path) -> Result<Catalog, String> {
-    let (mut entries, origin) = match from_cli() {
-        Ok(entries) => (entries, "cli"),
+    let (mut entries, origin, fallback_reason) = match from_cli() {
+        Ok(entries) => (entries, "cli", None),
         Err(e) => {
             let entries = from_local_cache();
             if entries.is_empty() {
                 return Err(e);
             }
-            (entries, "local-cache")
+            (entries, "local-cache", Some(e))
         }
     };
     attach_directory_info(&mut entries);
@@ -241,6 +249,7 @@ pub fn load(data_dir: &Path) -> Result<Catalog, String> {
         new_count,
         updated_count,
         first_run,
+        fallback_reason,
     })
 }
 

@@ -84,6 +84,7 @@ const plugins: Plugin[] = [
     components: { skills: [comp("deploy", "프로덕션 배포")], commands: [], agents: [], hooks: [], mcpServers: ["deploy-api"] },
   }),
   plugin({ id: "data@knowledge-work-plugins", enabled: false, version: "1.1.0", description: "Write SQL, explore datasets, and generate insights faster." }),
+  plugin({ id: "video-tool@anthropic-plugin-directory", scope: "local", projectPath: "/Users/me/Documents/deleted-folder", folderMissing: true, version: "1.0.0", latestVersion: "1.1.0", description: "폴더 범위로 설치한 뒤 그 폴더가 삭제된 예" }),
   plugin({ id: "old-linter@legacy-market", installed: false, installPath: null, pathExists: false, manifestOk: false, version: null }),
   plugin({ id: "design@knowledge-work-plugins", surface: "desktop", appRef: "plugin_01MockAppRef", toggleable: false, scope: null, version: "1.2.0", description: "Accelerate design workflows — critique, design system management, UX writing." }),
   plugin({ id: "engineering@knowledge-work-plugins", surface: "desktop", appRef: "plugin_01MockAppRef", toggleable: false, scope: null, version: "1.2.0", description: "Streamline engineering workflows — standups, code review, architecture decisions." }),
@@ -103,6 +104,9 @@ function diagnostics(): Diagnostic[] {
     d.push({ id: "hooks:superpowers", severity: "info", pluginId: "superpowers@anthropic-plugin-directory", title: "superpowers: 자동 실행 훅이 있습니다 (SessionStart)", detail: "세션 시작 시 스크립트를 자동으로 실행합니다. 신뢰할 수 있는 출처인지 확인하세요.", fix: null });
   if (on("frontend-design@claude-plugins-official"))
     d.push({ id: "both-surfaces:frontend-design", severity: "info", pluginId: "frontend-design@claude-plugins-official", title: "frontend-design: Claude 앱과 터미널 양쪽에서 켜져 있습니다", detail: "한쪽에서 쓰는 것을 권장합니다.", fix: null });
+  const gone = plugins.find((p) => p.folderMissing);
+  if (gone)
+    d.push({ id: `folder-missing:${gone.id}`, severity: "warning", pluginId: gone.id, title: "video-tool: 설치한 폴더가 삭제되었습니다", detail: `이 플러그인은 ${gone.projectPath} 폴더에서만 쓰도록 설치되었는데 그 폴더가 없어져 어디에서도 동작하지 않습니다. 켜기·끄기와 업데이트는 할 수 없고, 남은 설치 기록은 정리할 수 있습니다.`, fix: { kind: "cleanup-folder", label: "설치 기록 정리" } });
   const rank = { error: 0, warning: 1, info: 2 };
   return d.sort((a, b) => rank[a.severity] - rank[b.severity]);
 }

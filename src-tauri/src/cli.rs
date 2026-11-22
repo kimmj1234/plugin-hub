@@ -22,9 +22,11 @@ fn cli_version(path: &Path) -> Option<String> {
         .filter(|r| r.ok)
         .map(|r| r.stdout.split_whitespace().next().unwrap_or("").to_string())
         .filter(|s| !s.is_empty());
-    if let Ok(mut c) = version_cache().lock() {
-        c.insert(path.to_path_buf(), v.clone());
-    }
+    // 실패(시간 초과 등)는 기억하지 않는다. 한 번 느렸다고 계속 "버전 모름"으로 보이지 않게.
+    if v.is_some()
+        && let Ok(mut c) = version_cache().lock() {
+            c.insert(path.to_path_buf(), v.clone());
+        }
     v
 }
 
@@ -125,6 +127,7 @@ fn run_raw_in(bin: &Path, cwd: &Path, args: &[&str], input: Option<&str>, timeou
         stdout,
         stderr,
         needs_accept,
+        warning: None,
     })
 }
 
@@ -164,7 +167,10 @@ fn find_accept_prompt(stdout: &str) -> Option<AcceptPrompt> {
             continue;
         };
         if let Some(sc) = find_key(&v, "shownCommand") {
-            let sha = sc.get("sha256").and_then(|s| s.as_str())?.to_string();
+            let Some(sha) = sc.get("sha256").and_then(|s| s.as_str()).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit())) else {
+                continue;
+            };
+            let sha = sha.to_string();
             return Some(AcceptPrompt {
                 sha256: sha,
                 detail: serde_json::to_string_pretty(sc).unwrap_or_default(),
