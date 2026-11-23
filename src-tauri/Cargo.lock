@@ -2996,7 +2996,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-hub"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
