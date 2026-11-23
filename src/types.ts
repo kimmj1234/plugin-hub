@@ -58,6 +58,16 @@ export interface Plugin {
   installedAt?: string | null;
   /** 폴더 범위로 설치했는데 그 폴더가 삭제됨: 켜기·끄기·업데이트 불가, 삭제(기록 정리)만 가능 */
   folderMissing?: boolean;
+  /** 같은 플러그인을 다른 범위에도 설치한 기록 (목록에는 대표 하나만 보인다) */
+  otherInstalls?: OtherInstall[];
+}
+
+export interface OtherInstall {
+  scope: string;
+  projectPath: string | null;
+  version: string | null;
+  enabled: boolean;
+  folderMissing: boolean;
 }
 
 export interface Marketplace {
@@ -125,6 +135,8 @@ export interface Catalog {
 export interface GuideCommand {
   command: string;
   description: string;
+  /** 이럴 때 추천: 이 명령을 쓰면 좋은 상황 (예전에 만든 가이드에는 없음) */
+  when?: string;
   usage: string;
   example: string;
 }

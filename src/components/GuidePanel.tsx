@@ -13,6 +13,8 @@ export function GuidePanel(props: {
   name?: string;
   description?: string;
   installed: boolean;
+  /** 명령별 설명은 '슬래시 명령' 칸에 따로 보여 줄 때 */
+  hideCommands?: boolean;
 }) {
   const { toast } = useHub();
   const [guide, setGuide] = useState<Guide | null>(null);
@@ -71,7 +73,8 @@ export function GuidePanel(props: {
     }
   };
 
-  if (guide) {
+  // 명령별 설명만 따로 만들어 둔 경우(요약 없음)는 아직 전체 가이드를 만들지 않은 것으로 본다
+  if (guide && guide.summary) {
     return (
       <div className="guide">
         <div className="guide-head">
@@ -86,7 +89,7 @@ export function GuidePanel(props: {
             <ul>{guide.useCases.map((u, i) => <li key={i}>{u}</li>)}</ul>
           </>
         )}
-        {guide.commands.length > 0 && (
+        {guide.commands.length > 0 && !props.hideCommands && (
           <>
             <h4>명령어 자세히</h4>
             <ul className="cmd-list">

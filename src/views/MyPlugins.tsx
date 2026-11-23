@@ -10,7 +10,7 @@ const TABS: { key: PluginsTab; label: string; hint: string }[] = [
   { key: "commands", label: "명령어 모음", hint: "쓸 수 있는 / 명령 한눈에" },
 ];
 
-export function MyPlugins({ tab, setTab }: { tab: PluginsTab; setTab: (t: PluginsTab) => void }) {
+export function MyPlugins({ tab, setTab, focus }: { tab: PluginsTab; setTab: (t: PluginsTab) => void; focus?: string | null }) {
   return (
     <div className="stack">
       <div className="subnav" role="tablist" aria-label="내 플러그인">
@@ -21,7 +21,7 @@ export function MyPlugins({ tab, setTab }: { tab: PluginsTab; setTab: (t: Plugin
         ))}
       </div>
       <div className="stack-body">
-        {tab === "list" && <Installed />}
+        {tab === "list" && <Installed key={focus ?? ""} focus={focus} />}
         {tab === "folders" && <Scopes />}
         {tab === "commands" && <Commands />}
       </div>

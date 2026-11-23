@@ -31,3 +31,8 @@ export function toTri(v: boolean | undefined): TriValue {
 export function fromTri(t: TriValue): boolean | null {
   return t === "inherit" ? null : t === "on";
 }
+
+/** 설치 범위를 화면에 보이는 말로 */
+export function scopeLabel(scope: string | null | undefined): string {
+  return scope === "local" ? "폴더·나만" : scope === "project" ? "폴더·팀 공유" : "PC 전체";
+}

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { AiStatus, Catalog, CliResult, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Permissions, Snapshot, Surface, UsageReport } from "./types";
+import type { AiStatus, Catalog, CliResult, Components, Group, Guide, HubState, InstallScope, Prefs, ProjectFolder, Permissions, Snapshot, Surface, UsageReport } from "./types";
 
 export const api = {
   scan: () => invoke<Snapshot>("scan"),
@@ -16,6 +16,7 @@ export const api = {
     invoke<CliResult>("uninstall_plugin", { id, scope: scope ?? null, projectPath: projectPath ?? null }),
   update: (id: string, scope?: string | null, projectPath?: string | null) =>
     invoke<CliResult>("update_plugin", { id, scope: scope ?? null, projectPath: projectPath ?? null }),
+  preview: (id: string) => invoke<Components | null>("preview_plugin", { id }),
   addMarketplace: (source: string) => invoke<CliResult>("add_marketplace", { source }),
   catalog: (refresh = false) => invoke<Catalog>("get_catalog", { refresh }),
   readme: (id: string, surface: Surface) =>
@@ -30,6 +31,7 @@ export const api = {
     invoke<void>("open_in_claude_app", { kind, value: value ?? null, plugin: plugin ?? null }),
   installInClaudeApp: (name: string, sourceUrl: string | null) => invoke<"added" | "already">("install_in_claude_app", { name, repo: sourceUrl }),
   openAccessibilitySettings: () => invoke<void>("open_accessibility_settings"),
+  generateCommandGuide: (id: string, names: string[]) => invoke<Guide>("generate_command_guide", { id, names }),
   getGuide: (id: string, version: string | null) => invoke<Guide | null>("get_guide", { id, version }),
   generateGuide: (args: { id: string; surface?: Surface | null; version?: string | null; name?: string | null; description?: string | null }) =>
     invoke<Guide>("generate_guide", {

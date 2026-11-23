@@ -1,17 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { selectable } from "../a11y";
 import { api, errorText } from "../api";
 import { useHub } from "../hub";
 import { koFor } from "../catalogMeta";
-import { InvokeBadges, SlashHelp, slashItems, type SlashItem } from "../components/SlashCommands";
+import { SlashHelp, slashItems, type SlashItem } from "../components/SlashCommands";
 import { CopyButton } from "../components/CopyButton";
-import type { Guide, GuideCommand, Plugin, Surface } from "../types";
+import { KoCommandRow, KoCommandsBar, commandKey as key, useKoCommands } from "../components/KoCommands";
+import type { Plugin, Surface } from "../types";
 import { SurfaceLabel } from "../surface";
-
-// AI 가이드의 명령 이름("/plugin:cmd <인자>")과 플러그인 구성 요소 이름을 맞춘다.
-function key(s: string): string {
-  return s.trim().split(/\s/)[0].replace(/^\//, "").split(":").pop()!.toLowerCase();
-}
 
 // AI가 외부 플러그인 설명으로 만든 예시는 그대로 믿지 않는다. "예시로 입력"은 이 명령으로 시작하고
 // 주소·셸 기호가 없는 짧은 문장일 때만 허용한다 (README에 심은 문장이 채팅 입력창에 들어가지 않게).
@@ -83,51 +79,19 @@ export function Commands() {
 
 function PluginCommands({ p }: { p: Plugin }) {
   const { snap, toast } = useHub();
-  const [guide, setGuide] = useState<Guide | null>(null);
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const items = directItems(p);
   const autoOnly = slashItems(p).filter((s) => s.kind === "skill" && !s.comp.userInvocable);
   const ko = koFor(p);
+  const koCmds = useKoCommands(p);
+  const { guide, byKey } = koCmds;
   // 설명이 이미 한국어면 "영어로 되어 있다"고 안내하지 않는다
   const described = items.filter((s) => s.comp.description.trim());
   const alreadyKorean = described.length > 0 && described.filter((s) => /[가-힣]/.test(s.comp.description)).length * 2 >= described.length;
-
-  useEffect(() => {
-    // 플러그인을 빠르게 바꿔 고르면 이전 플러그인의 결과가 늦게 와서 덮어쓰지 않게 한다
-    let alive = true;
-    setGuide(null);
-    api.getGuide(p.id, p.version).then((g) => alive && setGuide(g)).catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [p.id, p.version]);
-
-  const byKey = new Map<string, GuideCommand>((guide?.commands ?? []).map((c) => [key(c.command), c]));
 
   // Claude 앱 채팅에서 쓸 수 있는가: Claude 앱 플러그인이거나, 같은 이름이 Claude 앱에도 설치된 경우
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   // Claude 앱 플러그인은 내부 이름이 UUID인 경우가 있어 plugin.json 이름(displayName)으로도 맞춘다
   const inApp = p.surface === "desktop" || !!snap?.plugins.some((x) => x.surface === "desktop" && (same(x.name, p.name) || same(x.displayName, p.displayName)));
-
-  const generate = async () => {
-    setWorking(true);
-    setError(null);
-    try {
-      const s = await api.aiStatus();
-      if (!s.loggedIn) {
-        setError(s.detail);
-        return;
-      }
-      const g = await api.generateGuide({ id: p.id, surface: p.surface, version: p.version, name: p.displayName, description: p.description });
-      setGuide(g);
-      toast("ok", `${p.displayName} 명령어 설명을 한국어로 만들었습니다`);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setWorking(false);
-    }
-  };
 
   const send = async (text: string) => {
     if (inApp) {
@@ -158,27 +122,14 @@ function PluginCommands({ p }: { p: Plugin }) {
       {guide?.summary ? <p className="desc ko">{guide.summary}</p> : ko ? <p className="desc ko">{ko}</p> : p.description && <p className="desc">{p.description}</p>}
       {!p.enabled && <div className="note bad small">이 플러그인은 꺼져 있어서 지금은 명령을 쓸 수 없습니다. '목록'에서 켜면 새 세션부터 쓸 수 있습니다.</div>}
 
-      {guide ? (
-        <div className="ko-status">
-          <span className="badge ai" title="플러그인 제작자가 쓴 설명을 AI가 한국어로 옮긴 것입니다. 실제 동작은 원문과 다를 수 있습니다.">AI 한국어 설명</span>
-          <span className="muted small">{new Date(guide.generatedAt).toLocaleDateString()} 생성</span>
-          <button className="link" disabled={working} onClick={generate}>{working ? "다시 만드는 중…" : "다시 만들기"}</button>
-        </div>
-      ) : alreadyKorean ? (
+      {alreadyKorean && !guide ? (
         <div className="ko-status">
           <span className="muted small">제작자가 한국어로 설명을 써 두었습니다.</span>
-          <button className="link" disabled={working} onClick={generate}>{working ? "만드는 중…" : "AI로 쓰는 법·예시 더 자세히 보기"}</button>
+          <button className="link" disabled={koCmds.working} onClick={() => koCmds.fill(koCmds.items)}>{koCmds.working ? "만드는 중…" : "AI로 추천 상황·예시 더 보기"}</button>
         </div>
       ) : (
-        <div className="ko-cta">
-          <div>
-            <strong>명령어 설명이 영어로 되어 있습니다.</strong>
-            <div className="muted small">내 Claude 계정으로 한국어 설명과 사용 예시를 만들어 저장합니다. 한 번 만들면 다시 쓰고, 보통 30초~1분 걸립니다.</div>
-          </div>
-          <button className="primary" disabled={working} onClick={generate}>{working ? "만드는 중…" : "한국어로 보기"}</button>
-        </div>
+        <KoCommandsBar ko={koCmds} />
       )}
-      {error && <div className="note bad small">{error}</div>}
 
       <SlashHelp />
 
@@ -187,36 +138,22 @@ function PluginCommands({ p }: { p: Plugin }) {
           const g = byKey.get(key(s.comp.name));
           const insert = `${s.call} `;
           return (
-            <li key={s.kind + s.comp.name} className="cmd">
-              <div className="cmd-line">
-                <code className="cmd-name">
-                  {s.call}
-                  {s.comp.argumentHint && <span className="arg"> {s.comp.argumentHint}</span>}
-                </code>
-                <InvokeBadges c={s.comp} kind={s.kind} />
-              </div>
-              <div className="cmd-desc">{g?.description || s.comp.description || "설명이 없습니다."}</div>
-              {g?.description && s.comp.description && <div className="muted tiny">원문: {s.comp.description}</div>}
-              {g?.usage && <div className="cmd-usage"><strong>쓰는 법</strong> {g.usage}</div>}
-              {s.comp.argumentHint && (
-                <div className="muted small">
-                  입력 형식: <code>{s.call} {s.comp.argumentHint}</code> — <code>&lt;…&gt;</code>는 꼭 넣는 값, <code>[…]</code>는 생략 가능
-                </div>
-              )}
-              {g?.example && <div className="example">예시: <code>{g.example}</code></div>}
-              {!g?.example && s.comp.examples.length > 0 && (
-                <div className="example">이렇게 말해도 됩니다: {s.comp.examples.slice(0, 3).map((e, i) => <q key={i}>{e}</q>)}</div>
-              )}
-              <div className="cmd-actions">
-                <button className="primary" disabled={!p.enabled} onClick={() => send(insert)} title={inApp ? "Claude 앱 새 채팅 입력창에 이 명령을 넣습니다 (보내기는 직접)" : "복사한 뒤 붙여 넣을 곳을 안내합니다"}>
-                  {inApp ? "바로 입력" : "복사해서 입력"}
-                </button>
-                {safeExample(g?.example, s.call) && inApp && (
-                  <button disabled={!p.enabled} onClick={() => send(g!.example)}>예시로 입력</button>
-                )}
-                <CopyButton text={s.call} />
-              </div>
-            </li>
+            <KoCommandRow
+              key={s.kind + s.comp.name}
+              item={s}
+              g={g}
+              actions={
+                <>
+                  <button className="primary" disabled={!p.enabled} onClick={() => send(insert)} title={inApp ? "Claude 앱 새 채팅 입력창에 이 명령을 넣습니다 (보내기는 직접)" : "복사한 뒤 붙여 넣을 곳을 안내합니다"}>
+                    {inApp ? "바로 입력" : "복사해서 입력"}
+                  </button>
+                  {safeExample(g?.example, s.call) && inApp && (
+                    <button disabled={!p.enabled} onClick={() => send(g!.example)}>예시로 입력</button>
+                  )}
+                  <CopyButton text={s.call} />
+                </>
+              }
+            />
           );
         })}
       </ul>

@@ -493,6 +493,12 @@ async fn open_login() -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn preview_plugin(id: String) -> Result<Option<model::Components>, String> {
+    cli::validate_id(&id)?;
+    blocking(move || Ok(scanner::preview_components(&id))).await
+}
+
+#[tauri::command]
 fn get_guide(app: AppHandle, id: String, version: Option<String>) -> Result<Option<Guide>, String> {
     Ok(guide::cached(&data_dir(&app)?, &id, version.as_deref()))
 }
@@ -525,6 +531,30 @@ async fn generate_guide(
             ),
         };
         guide::generate(&dir, &id, ver.as_deref(), &context)
+    })
+    .await
+}
+
+/// 명령 일부의 한국어 설명(추천 상황 포함)을 만든다. 화면에서 20개씩 나눠 부른다.
+#[tauri::command]
+async fn generate_command_guide(app: AppHandle, id: String, names: Vec<String>) -> Result<Guide, String> {
+    cli::validate_id(&id)?;
+    if names.is_empty() || names.len() > 40 {
+        return Err("한 번에 1~40개 명령만 만들 수 있습니다".into());
+    }
+    let dir = data_dir(&app)?;
+    blocking(move || {
+        let snap = scanner::scan(&[]);
+        let p = snap
+            .plugins
+            .iter()
+            .find(|p| p.id == id && p.path_exists)
+            .ok_or("설치된 플러그인을 찾지 못했습니다")?;
+        let known: Vec<&str> = p.components.commands.iter().chain(&p.components.skills).map(|c| c.name.as_str()).collect();
+        if let Some(bad) = names.iter().find(|n| !known.contains(&n.as_str())) {
+            return Err(format!("이 플러그인에 없는 명령입니다: {bad}"));
+        }
+        guide::generate_commands(&dir, p, &names)
     })
     .await
 }
@@ -607,6 +637,7 @@ pub fn run() {
             remove_setting,
             install_plugin,
             uninstall_plugin,
+            preview_plugin,
             update_plugin,
             add_marketplace,
             get_catalog,
@@ -618,6 +649,7 @@ pub fn run() {
             open_accessibility_settings,
             get_guide,
             generate_guide,
+            generate_command_guide,
             read_readme,
             get_state,
             save_groups,

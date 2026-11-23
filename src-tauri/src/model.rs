@@ -71,6 +71,19 @@ pub struct Plugin {
     /// 폴더 범위(project/local)로 설치했는데 그 폴더가 없어졌다. 이 경우 켜기·끄기·업데이트는 할 수 없고 삭제(기록 정리)만 된다.
     #[serde(default)]
     pub folder_missing: bool,
+    /// 같은 플러그인을 다른 범위(PC 전체, 다른 폴더)에도 설치한 기록. 목록에는 대표 하나만 보이고 나머지는 여기에 담는다.
+    #[serde(default)]
+    pub other_installs: Vec<OtherInstall>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OtherInstall {
+    pub scope: String,
+    pub project_path: Option<String>,
+    pub version: Option<String>,
+    pub enabled: bool,
+    pub folder_missing: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -158,6 +171,9 @@ pub struct Catalog {
 pub struct GuideCommand {
     pub command: String,
     pub description: String,
+    /// 어떤 상황에서 이 명령을 쓰면 좋은지 (추천 상황)
+    #[serde(default)]
+    pub when: String,
     #[serde(default)]
     pub usage: String,
     #[serde(default)]

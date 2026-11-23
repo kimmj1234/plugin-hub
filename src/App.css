@@ -337,6 +337,12 @@ details.fold > summary { cursor: pointer; font-size: 13px; padding: 6px 0; }
 .ko-cmds .cmd-desc { font-size: 14px; }
 .cmd-usage { font-size: 13px; margin-top: 4px; }
 .cmd-usage strong { margin-right: 6px; color: var(--accent); font-weight: 600; }
+.cmd-when { font-size: 13px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 7%, transparent); line-height: 1.55; }
+.cmd-when strong { margin-right: 6px; color: var(--accent); font-weight: 600; }
+.cmd-original { margin-top: 4px; }
+.cmd-original summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.ko-progress { height: 4px; border-radius: 2px; background: var(--line); margin-top: 8px; overflow: hidden; }
+.ko-progress span { display: block; height: 100%; background: var(--accent); transition: width 0.3s ease; }
 .cmd-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
 
 /* 플러그인 찾기 필터 (간소화) */
@@ -395,3 +401,30 @@ li[tabindex]:focus-visible { outline-offset: -2px; border-radius: 8px; }
 .live-dot.off { background: var(--muted); }
 .update-pill.error { background: var(--err-bg); border-color: color-mix(in srgb, var(--err) 35%, var(--line)); color: var(--err); }
 .state-error { max-width: 560px; margin: 12vh auto 0; }
+
+.other-installs { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.other-installs li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.oi-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.oi-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.list-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin: -2px 0 8px; }
+.list-tools select { font-size: 12px; padding: 3px 6px; }
+
+/* 좁은 창: 최소 너비(960px)에서도 상세 화면이 눌리지 않게 사이드바와 목록 폭을 줄인다 */
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.scope-table td:first-child { overflow-wrap: anywhere; }
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 176px 1fr; }
+  .split { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
+  .split:has(.wide) { grid-template-columns: minmax(320px, 1fr) minmax(0, 1fr); }
+  .detail { padding: 18px 20px; }
+  .page { padding: 20px 22px; }
+}
+@media (max-width: 1040px) {
+  .app { grid-template-columns: 150px 1fr; }
+  .brand { font-size: 15px; padding: 4px 6px 14px; }
+  .sidebar { padding: 14px 8px; }
+  .sidebar nav button { padding: 8px 8px; }
+  .split { grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); }
+  .detail-head { flex-wrap: wrap; }
+  .oi-path { max-width: 200px; }
+}

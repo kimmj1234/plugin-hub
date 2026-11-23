@@ -446,7 +446,41 @@ fn build_plugin(
         app_ref: None,
         installed_at: install.and_then(|i| str_of(i, "installedAt")),
         folder_missing,
+        other_installs: Vec::new(),
     }
+}
+
+/// 폴더 범위 설치는 그 폴더 설정 파일에서, PC 전체 설치는 사용자 설정에서 켜짐 여부를 읽는다.
+fn install_enabled(id: &str, scope: Option<&str>, project: Option<&str>, user: &BTreeMap<String, bool>) -> bool {
+    match (scope, project) {
+        (Some(sc @ ("project" | "local")), Some(pp)) => enabled_map(&paths::project_settings(Path::new(pp), sc == "local"))
+            .0
+            .get(id)
+            .copied()
+            .unwrap_or(false),
+        _ => user.get(id).copied().unwrap_or(false),
+    }
+}
+
+/// 설치하기 전에 구성 요소를 미리 본다. 마켓플레이스가 이 PC에 내려받아져 있고(installLocation)
+/// 플러그인 소스가 그 안의 상대 경로일 때만 알 수 있다. 공식 디렉터리처럼 설치할 때 내려받는 경우는 None.
+pub fn preview_components(id: &str) -> Option<Components> {
+    let (name, market) = split_id(id);
+    let known = read_json(&paths::known_marketplaces_file()).ok()?;
+    let loc = PathBuf::from(str_of(known.get(&market)?, "installLocation")?);
+    let mf = read_plugin_json(&loc.join(".claude-plugin").join("marketplace.json")).ok()?;
+    let entry = mf.get("plugins")?.as_array()?.iter().find(|p| str_of(p, "name").as_deref() == Some(name.as_str()))?;
+    let rel = entry.get("source")?.as_str()?;
+    if Path::new(rel).is_absolute() || Path::new(rel).components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return None;
+    }
+    let root = loc.join(rel);
+    let canon_root = fs::canonicalize(&root).ok()?;
+    if !canon_root.starts_with(fs::canonicalize(&loc).ok()?) || !canon_root.is_dir() {
+        return None;
+    }
+    let man = manifest(&canon_root);
+    Some(components(&canon_root, &man.value))
 }
 
 fn read_installed() -> Result<Value, String> {
@@ -471,6 +505,7 @@ pub fn recorded_project_paths() -> Vec<String> {
 
 fn cli_plugins(settings: &mut SettingsInfo, latest: &HashMap<String, String>) -> Vec<Plugin> {
     let mut installed: BTreeMap<String, Value> = BTreeMap::new();
+    let mut others: HashMap<String, Vec<Value>> = HashMap::new();
     let data = match read_installed() {
         Ok(v) => v,
         Err(e) => {
@@ -488,6 +523,10 @@ fn cli_plugins(settings: &mut SettingsInfo, latest: &HashMap<String, String>) ->
                         .or_else(|| arr.first());
                     if let Some(e) = pick {
                         installed.insert(id.clone(), e.clone());
+                        let rest: Vec<Value> = arr.iter().filter(|x| !std::ptr::eq(*x, e)).cloned().collect();
+                        if !rest.is_empty() {
+                            others.insert(id.clone(), rest);
+                        }
                     }
                 }
             }
@@ -510,18 +549,27 @@ fn cli_plugins(settings: &mut SettingsInfo, latest: &HashMap<String, String>) ->
             let path = inst.and_then(|i| str_of(i, "installPath"));
             let scope = inst.and_then(|i| str_of(i, "scope"));
             let project = inst.and_then(|i| str_of(i, "projectPath"));
-            let enabled = match (scope.as_deref(), project) {
-                (Some(sc @ ("project" | "local")), Some(pp)) => {
-                    enabled_map(&paths::project_settings(Path::new(&pp), sc == "local"))
-                        .0
-                        .get(&id)
-                        .copied()
-                        .unwrap_or(false)
-                }
-                _ => settings.enabled.get(&id).copied().unwrap_or(false),
-            };
+            let enabled = install_enabled(&id, scope.as_deref(), project.as_deref(), &settings.enabled);
             let mut p = build_plugin(&id, "cli", enabled, inst, path);
             p.latest_version = latest.get(&id).cloned();
+            p.other_installs = others
+                .get(&id)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| {
+                    let scope = str_of(e, "scope")?;
+                    let project_path = str_of(e, "projectPath");
+                    let folder_missing = matches!(scope.as_str(), "project" | "local")
+                        && project_path.as_deref().is_some_and(|pp| crate::orphan::deletion_plausible(Path::new(pp)));
+                    Some(OtherInstall {
+                        enabled: install_enabled(&id, Some(&scope), project_path.as_deref(), &settings.enabled),
+                        version: str_of(e, "version"),
+                        scope,
+                        project_path,
+                        folder_missing,
+                    })
+                })
+                .collect();
             p
         })
         .collect()

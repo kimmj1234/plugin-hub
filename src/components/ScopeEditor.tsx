@@ -67,6 +67,7 @@ export function ScopeEditor({ plugin }: { plugin: Plugin }) {
 
       {!folderInstalled && open && (
         <>
+          <div className="table-scroll">
           <table className="scope-table">
             <thead>
               <tr>
@@ -102,6 +103,7 @@ export function ScopeEditor({ plugin }: { plugin: Plugin }) {
               )}
             </tbody>
           </table>
+          </div>
           <div className="actions">
             <button onClick={add}>+ 폴더 추가</button>
             {overridden.length === 0 && <button onClick={() => setOpenState(false)} aria-expanded={true}>접기</button>}

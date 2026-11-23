@@ -29,7 +29,7 @@ python3 scripts/gen-notices.py
 git tag v1.0.1 && git push origin main v1.0.1
 ```
 
-5. GitHub Actions의 Release 워크플로가 macOS(유니버설)와 Windows 설치 파일, 업데이트 파일(`latest.json`과 서명)을 만들어 릴리스에 올리고 공개합니다.
+5. GitHub Actions의 Release 워크플로가 macOS(유니버설)와 Windows 설치 파일, 업데이트 파일(`latest.json`과 서명)을 만들어 릴리스에 올리고 공개합니다. 화면(npm) 빌드는 서명 키가 없는 단계에서 먼저 하고, 서명 단계는 `src-tauri/tauri.release.conf.json`으로 화면 빌드를 건너뜁니다. cargo audit에서 취약점이 나오면 공개하지 않습니다.
 6. 이미 설치된 앱은 설정에 따라 자동으로 업데이트되거나 알림을 띄웁니다.
 
 ## 코드 서명을 붙이려면 (선택)

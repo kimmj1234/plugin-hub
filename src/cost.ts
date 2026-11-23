@@ -1,4 +1,4 @@
-import type { Plugin, PluginUsage } from "./types";
+import type { Components, Plugin, PluginUsage } from "./types";
 
 // 매 세션 시스템 프롬프트에 들어가는 스킬·명령·에이전트 설명의 토큰 수를 추정한다.
 // 공식 `claude plugin details`의 "Always-on" 값과 비교해 맞춘 근사식(영문 4자≈1토큰, 한글 1자≈1.5토큰, 항목당 약 15토큰).
@@ -13,9 +13,13 @@ function textTokens(s: string): number {
 }
 
 export function alwaysOnTokens(p: Plugin): number {
+  return componentTokens(p.components);
+}
+
+export function componentTokens(comps: Components): number {
   const seen = new Set<string>();
   let total = 0;
-  for (const c of [...p.components.skills, ...p.components.commands, ...p.components.agents]) {
+  for (const c of [...comps.skills, ...comps.commands, ...comps.agents]) {
     if (seen.has(c.name)) continue;
     seen.add(c.name);
     total += textTokens(c.name) + textTokens(c.description) + 15;

@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, cliMessage, errorText } from "./api";
-import type { Catalog, Diagnostic, Group, InstallScope, Permissions, Plugin, PluginUsage, Prefs, ProjectFolder, Snapshot } from "./types";
+import type { Catalog, Diagnostic, Group, InstallScope, OtherInstall, Permissions, Plugin, PluginUsage, Prefs, ProjectFolder, Snapshot } from "./types";
+import { scopeLabel } from "./scope";
 
 export interface Toast {
   id: number;
@@ -22,7 +23,7 @@ interface HubCtx {
   toggle: (p: Plugin, enabled: boolean) => Promise<void>;
   toggleMany: (ps: Plugin[], enabled: boolean) => Promise<void>;
   runFix: (d: Diagnostic) => Promise<void>;
-  uninstall: (p: Plugin) => Promise<void>;
+  uninstall: (p: Plugin, at?: OtherInstall) => Promise<void>;
   update: (p: Plugin) => Promise<void>;
   setGroups: (groups: Group[]) => Promise<void>;
   withBusy: <T>(key: string, label: string, fn: () => Promise<T>) => Promise<T | undefined>;
@@ -269,9 +270,11 @@ export function HubProvider({ children }: { children: ReactNode }) {
   );
 
   const uninstall = useCallback(
-    async (p: Plugin) => {
-      const r = await withBusy(p.id, "삭제 중", () => api.uninstall(p.id, p.scope, p.projectPath));
-      if (r) reportCli(`${p.displayName} 삭제`, r);
+    async (p: Plugin, at?: OtherInstall) => {
+      const scope = at ? at.scope : p.scope;
+      const projectPath = at ? at.projectPath : p.projectPath;
+      const r = await withBusy(p.id, "삭제 중", () => api.uninstall(p.id, scope, projectPath));
+      if (r) reportCli(`${p.displayName}${at ? ` (${scopeLabel(at.scope)})` : ""} 삭제`, r);
       refresh();
     },
     [withBusy, reportCli, refresh],

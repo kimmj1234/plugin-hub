@@ -41,6 +41,10 @@ const plugins: Plugin[] = [
   plugin({
     id: "superpowers@anthropic-plugin-directory",
     version: "7.0.2",
+    otherInstalls: [
+      { scope: "local", projectPath: "/Users/me/work/shop-web", version: "7.0.1", enabled: false, folderMissing: false },
+      { scope: "project", projectPath: "/Users/me/old/removed-app", version: "6.9.0", enabled: false, folderMissing: true },
+    ],
     description: "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
     author: "obra",
     repository: "https://github.com/obra/superpowers",
@@ -220,7 +224,17 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
       if (e && !plugins.some((p) => p.id === e.pluginId)) plugins.push(plugin({ id: e.pluginId, version: e.version, description: e.description }));
       return ok(`Installed ${args.id}`);
     }
+    case "preview_plugin": {
+      const e = catalogEntries.find((x) => x.pluginId === args.id);
+      if (!e || !e.pluginId.startsWith("mattpocock")) return null;
+      return { skills: [comp("example", "예시 스킬 설명")], commands: [comp("run", "실행 명령")], agents: [], hooks: ["SessionStart"], mcpServers: [] };
+    }
     case "uninstall_plugin": {
+      const owner = plugins.find((x) => x.id === args.id && x.otherInstalls?.some((o) => o.scope === args.scope && o.projectPath === args.projectPath));
+      if (owner) {
+        owner.otherInstalls = owner.otherInstalls!.filter((o) => !(o.scope === args.scope && o.projectPath === args.projectPath));
+        return ok(`Uninstalled ${args.id} (${args.scope})`);
+      }
       const i = plugins.findIndex((x) => x.id === args.id && x.surface === "cli");
       if (i >= 0) plugins.splice(i, 1);
       return ok(`Uninstalled ${args.id}`);
@@ -263,6 +277,22 @@ async function invoke(cmd: string, args: Record<string, any> = {}): Promise<unkn
       return { cliFound: true, loggedIn: true, detail: "로그인됨" };
     case "open_login":
       return null;
+    case "generate_command_guide": {
+      await wait(700);
+      const p = plugins.find((x) => x.id === args.id)!;
+      const ns = p.displayName;
+      const prev = guides[args.id] ?? { summary: "", useCases: [], commands: [], tips: [], cautions: [], generatedAt: Date.now(), version: p.version };
+      const made = (args.names as string[]).map((n) => ({
+        command: `/${ns}:${n}`,
+        description: `(미리보기) ${n} 작업을 대신 진행합니다.`,
+        when: `이럴 때 추천: ${n}이(가) 필요한 상황에서 직접 단계를 밟기 번거로울 때 쓰세요.`,
+        usage: "명령 뒤에 하고 싶은 내용을 한 줄로 적습니다.",
+        example: `/${ns}:${n} 로그인 화면`,
+      }));
+      const keep = prev.commands.filter((c: { command: string }) => !made.some((m) => m.command.split(":").pop() === c.command.split(" ")[0].split(":").pop()));
+      guides[args.id] = { ...prev, commands: [...made, ...keep] };
+      return guides[args.id];
+    }
     case "get_guide":
       return guides[args.id] ?? null;
     case "generate_guide": {

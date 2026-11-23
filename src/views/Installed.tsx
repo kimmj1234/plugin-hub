@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectable } from "../a11y";
 import { useHub } from "../hub";
 import { Toggle } from "../components/Toggle";
@@ -9,17 +9,45 @@ import { alwaysOnTokens, formatTokens, recentlyInstalled, tokenWeight, usageLabe
 import { SurfaceLabel } from "../surface";
 
 const ALL = "__all";
+type SortKey = "name" | "heavy" | "recent" | "unused";
+type StateFilter = "all" | "on" | "off" | "problem" | "update";
+const SORTS: [SortKey, string][] = [["name", "이름순"], ["heavy", "토큰 많은 순"], ["recent", "최근 설치 순"], ["unused", "적게 쓴 순"]];
+const FILTERS: [StateFilter, string][] = [["all", "전체"], ["on", "켜짐"], ["off", "꺼짐"], ["problem", "문제 있음"], ["update", "새 버전"]];
+
+function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key) as T | null;
+    return v && allowed.includes(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function remember(key: string, v: string) {
+  try {
+    localStorage.setItem(key, v);
+  } catch {
+    /* 저장 못 해도 이번 화면에서는 그대로 쓴다 */
+  }
+}
 const UNGROUPED = "__none";
 
-export function Installed() {
+export function Installed({ focus }: { focus?: string | null } = {}) {
   const { snap, groups, setGroups, toggle, toggleMany, usage, usageDays } = useHub();
   const [surface, setSurface] = useState<Surface>("cli");
   const [folder, setFolder] = useState<string>(ALL);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(focus ?? null);
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const renameCancelled = useRef(false);
+  const [sort, setSortState] = useState<SortKey>(() => stored("installed.sort", SORTS.map((x) => x[0]), "name"));
+  const [stateFilter, setStateFilterState] = useState<StateFilter>(() => stored("installed.filter", FILTERS.map((x) => x[0]), "all"));
+  const setSort = (v: SortKey) => { setSortState(v); remember("installed.sort", v); };
+  const setStateFilter = (v: StateFilter) => { setStateFilterState(v); remember("installed.filter", v); };
+  const selectedRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (focus) selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [focus]);
 
   const plugins = useMemo(() => snap?.plugins.filter((p) => p.surface === surface) ?? [], [snap, surface]);
   const grouped = new Set(groups.flatMap((g) => g.pluginIds));
@@ -27,13 +55,27 @@ export function Installed() {
   const inFolder = (p: Plugin) =>
     folder === ALL ? true : folder === UNGROUPED ? !grouped.has(p.id) : groups.find((g) => g.id === folder)?.pluginIds.includes(p.id);
 
-  const q = query.trim().toLowerCase();
-  const visible = plugins.filter(
-    (p) => (surface === "desktop" || inFolder(p)) && (!q || `${p.displayName} ${p.id} ${p.description}`.toLowerCase().includes(q)),
-  );
-  const current = plugins.find((p) => p.id === selected) ?? null;
   const installingIds = new Set(snap?.diagnostics.filter((d) => d.id.startsWith("installing:")).map((d) => d.pluginId));
   const problemIds = new Set(snap?.diagnostics.filter((d) => d.severity !== "info" && surface === "cli").map((d) => d.pluginId));
+  const q = query.trim().toLowerCase();
+  const hasUpdate = (p: Plugin) => !!(p.latestVersion && p.version && p.latestVersion !== p.version);
+  const isOn = (p: Plugin) => p.enabled && p.installed && !p.folderMissing;
+  const passState = (p: Plugin) =>
+    stateFilter === "all" ||
+    (stateFilter === "on" && isOn(p)) ||
+    (stateFilter === "off" && !isOn(p)) ||
+    (stateFilter === "problem" && problemIds.has(p.id)) ||
+    (stateFilter === "update" && hasUpdate(p));
+  const uses = (p: Plugin) => usageOf(usage, p)?.count ?? 0;
+  const visible = plugins
+    .filter((p) => (surface === "desktop" || inFolder(p)) && passState(p) && (!q || `${p.displayName} ${p.id} ${p.description}`.toLowerCase().includes(q)))
+    .sort((a, b) => {
+      if (sort === "heavy") return alwaysOnTokens(b) - alwaysOnTokens(a);
+      if (sort === "recent") return (b.installedAt ?? "").localeCompare(a.installedAt ?? "");
+      if (sort === "unused") return uses(a) - uses(b) || alwaysOnTokens(b) - alwaysOnTokens(a);
+      return a.displayName.localeCompare(b.displayName);
+    });
+  const current = plugins.find((p) => p.id === selected) ?? null;
 
   const addGroup = () => {
     const name = newName.trim();
@@ -121,11 +163,21 @@ export function Installed() {
           </div>
         )}
 
-        <input className="search" placeholder="설치된 플러그인 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input className="search" placeholder="설치된 플러그인 검색" aria-label="설치된 플러그인 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="list-tools">
+          <div className="chips" role="group" aria-label="상태로 거르기">
+            {FILTERS.filter(([k]) => surface === "cli" || k === "all" || k === "on" || k === "off").map(([k, label]) => (
+              <button key={k} className={`chip ${stateFilter === k ? "active" : ""}`} aria-pressed={stateFilter === k} onClick={() => setStateFilter(k)}>{label}</button>
+            ))}
+          </div>
+          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬">
+            {SORTS.filter(([k]) => k !== "unused" || (surface === "cli" && usage)).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        </div>
 
         <ul className="plugin-list">
           {visible.map((p) => (
-            <li key={p.id} className={p.id === selected ? "selected" : ""} {...selectable(() => setSelected(p.id), p.id === selected)}>
+            <li key={p.id} ref={p.id === selected ? selectedRef : undefined} className={p.id === selected ? "selected" : ""} {...selectable(() => setSelected(p.id), p.id === selected)}>
               <div className="pl-main">
                 <div className="pl-name">
                   {problemIds.has(p.id) && <span className="dot bad" title="문제 감지됨" />}
@@ -138,6 +190,7 @@ export function Installed() {
                   ) : (
                     p.folderMissing ? <span className="warn-text" title={p.projectPath ?? ""}>설치한 폴더가 삭제됨 · 기록 정리 필요</span> : <>
                       <TokenWeight n={alwaysOnTokens(p)} />
+                      {!!p.otherInstalls?.length && <span title="다른 범위에도 설치되어 있습니다"> · 범위 {p.otherInstalls.length + 1}곳</span>}
                       {surface === "cli" && usage && (
                         <span className={p.enabled && !usageOf(usage, p)?.count && !recentlyInstalled(p) ? "warn-text" : ""}> · {usageLabel(usageOf(usage, p), usageDays, p)}</span>
                       )}

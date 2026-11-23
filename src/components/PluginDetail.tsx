@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, errorText } from "../api";
 import { useHub } from "../hub";
-import type { Plugin } from "../types";
+import type { OtherInstall, Plugin } from "../types";
+import { scopeLabel } from "../scope";
 import { koFor } from "../catalogMeta";
 import { Markdown } from "./Markdown";
 import { Toggle } from "./Toggle";
 import { DiagnosticItem } from "./DiagnosticItem";
 import { GuidePanel } from "./GuidePanel";
-import { SlashHelp, SlashRow, slashItems } from "./SlashCommands";
+import { SlashHelp, slashItems } from "./SlashCommands";
+import { KoCommandRow, KoCommandsBar, commandKey, useKoCommands } from "./KoCommands";
 import { ScopeEditor } from "./ScopeEditor";
 import { AppUsage } from "./AppUsage";
 import { alwaysOnTokens, formatTokens, recentlyInstalled, tokenWeight, usageLabel, usageOf } from "../cost";
@@ -29,6 +31,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
   const slash = slashItems(p);
   const direct = slash.filter((s) => s.kind === "command" || s.comp.userInvocable);
   const autoOnly = slash.filter((s) => s.kind === "skill" && !s.comp.userInvocable);
+  const koCmds = useKoCommands(p);
 
   useEffect(() => {
     let alive = true;
@@ -72,7 +75,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         {p.version && <span className="badge">v{p.version}</span>}
         {hasUpdate && <span className="badge warn">새 버전 v{p.latestVersion}</span>}
         {p.folderMissing && <span className="badge warn" title={p.projectPath ?? ""}>설치한 폴더 없음</span>}
-        {p.scope && <span className="badge">설치 범위: {p.scope === "user" ? "PC 전체" : p.scope === "local" ? "폴더·나만" : "폴더·팀 공유"}</span>}
+        {p.scope && <span className="badge">설치 범위: {scopeLabel(p.scope)}{p.otherInstalls?.length ? ` 외 ${p.otherInstalls.length}곳` : ""}</span>}
         {p.author && <span className="badge">제작: {p.author}</span>}
         <span className="badge">슬래시 명령 {direct.length}개</span>
         <span className={`badge cost ${weight.level}`} title={`세션을 시작할 때마다 스킬·명령·에이전트 설명이 컨텍스트에 들어갑니다. 추정값입니다. ${weight.hint}`}>{weight.label} · 매 세션 약 {formatTokens(alwaysOnTokens(p))} 토큰{c.mcpServers.length ? " + MCP" : ""}</span>
@@ -115,6 +118,18 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         {busyLabel && <span className="spinner-text">{busyLabel}…</span>}
       </div>
 
+      {p.surface === "cli" && !!p.otherInstalls?.length && (
+        <section>
+          <h3>다른 범위에도 설치됨</h3>
+          <p className="muted small">같은 플러그인이 아래 범위에도 따로 설치되어 있습니다. 위의 켜기·끄기와 삭제는 대표 설치({scopeLabel(p.scope)}{p.projectPath ? ` · ${p.projectPath}` : ""})에만 적용됩니다.</p>
+          <ul className="other-installs">
+            {p.otherInstalls.map((o) => (
+              <OtherInstallRow key={`${o.scope}:${o.projectPath ?? ""}`} p={p} o={o} disabled={!!busyLabel} onRemove={() => uninstall(p, o)} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {p.surface === "cli" && p.installed && (
         <section>
           <h3>적용 범위 · 어느 폴더에서 쓸까요?</h3>
@@ -146,18 +161,19 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
 
       {p.surface === "cli" && <section>
         <h3>슬래시 명령</h3>
+        {p.surface === "cli" && p.installed && slash.length > 0 && <KoCommandsBar ko={koCmds} />}
         <SlashHelp />
         {direct.length === 0 && autoOnly.length === 0 ? (
           <p className="muted">이 플러그인에는 슬래시 명령이 없습니다.{c.mcpServers.length > 0 && " MCP 서버로 도구를 제공하므로, 관련 작업을 요청하면 Claude가 도구를 씁니다."}</p>
         ) : (
           <ul className="cmd-list">
-            {direct.map((s) => <SlashRow key={s.kind + s.comp.name} item={s} />)}
+            {direct.map((s) => <KoCommandRow key={s.kind + s.comp.name} item={s} g={koCmds.byKey.get(commandKey(s.comp.name))} />)}
           </ul>
         )}
         {autoOnly.length > 0 && (
           <>
             <h4>자동으로만 쓰이는 스킬 {autoOnly.length}개</h4>
-            <ul className="cmd-list">{autoOnly.map((s) => <SlashRow key={s.comp.name} item={s} />)}</ul>
+            <ul className="cmd-list">{autoOnly.map((s) => <KoCommandRow key={s.comp.name} item={s} g={koCmds.byKey.get(commandKey(s.comp.name))} />)}</ul>
           </>
         )}
       </section>}
@@ -193,7 +209,7 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
 
       <section>
         <h3>한국어 가이드</h3>
-        <GuidePanel key={`${p.surface}:${p.id}`} id={p.id} version={p.version} surface={p.surface} installed={p.pathExists} name={p.displayName} description={p.description} />
+        <GuidePanel key={`${p.surface}:${p.id}`} id={p.id} version={p.version} surface={p.surface} installed={p.pathExists} name={p.displayName} description={p.description} hideCommands={p.surface === "cli" && slash.length > 0} />
       </section>
 
       <section>
@@ -203,5 +219,30 @@ export function PluginDetail({ plugin }: { plugin: Plugin }) {
         </details>
       </section>
     </div>
+  );
+}
+
+function OtherInstallRow({ p, o, disabled, onRemove }: { p: Plugin; o: OtherInstall; disabled: boolean; onRemove: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <li>
+      <div className="oi-main">
+        <span className="badge">{scopeLabel(o.scope)}</span>
+        {o.projectPath && <span className="mono small oi-path" title={o.projectPath}>{o.projectPath}</span>}
+        {o.version && <span className="muted small">v{o.version}</span>}
+        {o.folderMissing ? <span className="badge warn">설치한 폴더 없음</span> : <span className={`badge ${o.enabled ? "ok" : ""}`}>{o.enabled ? "켜짐" : "꺼짐"}</span>}
+      </div>
+      {!confirm ? (
+        <button className="danger" disabled={disabled} onClick={() => setConfirm(true)} aria-label={`${p.displayName} ${scopeLabel(o.scope)} 설치 ${o.folderMissing ? "기록 정리" : "삭제"}`}>
+          {o.folderMissing ? "기록 정리" : "삭제"}
+        </button>
+      ) : (
+        <span className="confirm" role="alertdialog" aria-label="삭제 확인">
+          {o.folderMissing ? "이 범위의 남은 설치 기록을 지웁니다." : "이 범위의 설치만 지웁니다. 다른 범위 설치는 그대로입니다."}
+          <button className="danger" onClick={() => { setConfirm(false); onRemove(); }}>{o.folderMissing ? "정리" : "삭제"}</button>
+          <button autoFocus onClick={() => setConfirm(false)}>취소</button>
+        </span>
+      )}
+    </li>
   );
 }

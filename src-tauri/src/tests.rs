@@ -740,6 +740,7 @@ fn mk_plugin(id: &str, surface: &str, enabled: bool) -> crate::model::Plugin {
         app_ref: None,
         installed_at: None,
         folder_missing: false,
+        other_installs: Vec::new(),
     }
 }
 
@@ -906,4 +907,106 @@ fn deleted_folder_is_told_apart_from_unplugged_drive() {
     #[cfg(windows)]
     assert!(!plausible(std::path::Path::new(r"Q:\no-such-drive\proj")), "연결되지 않은 드라이브");
     let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn plugin_installed_in_several_scopes_lists_every_install() {
+    let _env = env_lock();
+    let home = temp_dir("multiscope");
+    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
+    let proj = temp_dir("multiscope-proj");
+    let gone = home.join("deleted-project");
+    let plug = home.join("plugins/cache/m/a/1.0.0");
+    write(plug.join(".claude-plugin/plugin.json"), r#"{"name":"a"}"#);
+    write(home.join("settings.json"), r#"{"enabledPlugins":{"a@m":true}}"#);
+    write(proj.join(".claude/settings.local.json"), r#"{"enabledPlugins":{"a@m":false}}"#);
+    let inst = serde_json::json!({"version":2,"plugins":{"a@m":[
+        {"scope":"local","projectPath":proj.to_string_lossy(),"installPath":plug.to_string_lossy(),"version":"0.9.0"},
+        {"scope":"user","installPath":plug.to_string_lossy(),"version":"1.0.0"},
+        {"scope":"project","projectPath":gone.to_string_lossy(),"installPath":plug.to_string_lossy(),"version":"1.0.0"}
+    ]}});
+    write(home.join("plugins/installed_plugins.json"), &inst.to_string());
+    let snap = scanner::scan(&[]);
+    let list: Vec<_> = snap.plugins.iter().filter(|p| p.id == "a@m").collect();
+    assert_eq!(list.len(), 1, "목록에는 대표 하나만");
+    let p = list[0];
+    assert_eq!(p.scope.as_deref(), Some("user"), "PC 전체 설치가 대표");
+    assert!(p.enabled);
+    assert_eq!(p.other_installs.len(), 2, "나머지 두 범위도 기록");
+    let local = p.other_installs.iter().find(|o| o.scope == "local").unwrap();
+    assert!(!local.enabled, "폴더(나만) 설정에서 꺼져 있음");
+    assert!(!local.folder_missing);
+    assert_eq!(local.version.as_deref(), Some("0.9.0"));
+    let project = p.other_installs.iter().find(|o| o.scope == "project").unwrap();
+    assert!(project.folder_missing, "지워진 폴더 설치는 정리 대상으로 표시");
+    unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
+    let _ = fs::remove_dir_all(&home);
+    let _ = fs::remove_dir_all(&proj);
+}
+
+#[test]
+fn preview_reads_components_only_inside_local_marketplace() {
+    let _env = env_lock();
+    let home = temp_dir("preview");
+    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &home) };
+    let mkt = home.join("plugins/marketplaces/mk");
+    write(mkt.join(".claude-plugin/marketplace.json"), r#"{"name":"mk","plugins":[
+        {"name":"ok","source":"./plugins/ok"},
+        {"name":"escape","source":"../../outside"},
+        {"name":"remote","source":{"source":"github","repo":"a/b"}}
+    ]}"#);
+    write(mkt.join("plugins/ok/.claude-plugin/plugin.json"), r#"{"name":"ok"}"#);
+    write(mkt.join("plugins/ok/skills/hello/SKILL.md"), "---\nname: hello\ndescription: say hi\n---\nbody");
+    write(home.join("outside/.claude-plugin/plugin.json"), r#"{"name":"escape"}"#);
+    let known = serde_json::json!({"mk":{"source":{"source":"git","url":"x"},"installLocation":mkt.to_string_lossy()}});
+    write(home.join("plugins/known_marketplaces.json"), &known.to_string());
+
+    let c = scanner::preview_components("ok@mk").expect("로컬 마켓플레이스 플러그인은 미리 볼 수 있다");
+    assert_eq!(c.skills.len(), 1);
+    assert!(scanner::preview_components("escape@mk").is_none(), "마켓플레이스 밖 경로는 읽지 않는다");
+    assert!(scanner::preview_components("remote@mk").is_none(), "원격 소스는 설치 전에 알 수 없다");
+    assert!(scanner::preview_components("nope@other").is_none());
+    unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn command_guides_merge_by_command_name() {
+    use crate::guide::{command_key, merge_commands};
+    use crate::model::GuideCommand;
+    let gc = |c: &str, d: &str| GuideCommand { command: c.into(), description: d.into(), ..Default::default() };
+    assert_eq!(command_key("/ecc:code-review [pr-number]"), "code-review");
+    assert_eq!(command_key("code-review"), "code-review");
+    let old = vec![gc("/ecc:aside", "옛 설명"), gc("/ecc:build-fix", "빌드 고침")];
+    let merged = merge_commands(&old, vec![gc("/ecc:aside <질문>", "새 설명")]);
+    assert_eq!(merged.len(), 2, "기존에만 있던 명령은 남는다");
+    assert_eq!(merged.iter().find(|c| command_key(&c.command) == "aside").unwrap().description, "새 설명");
+    // 예전 저장 파일(when 없음)도 읽힌다
+    let g: crate::model::Guide = serde_json::from_str(r#"{"summary":"s","commands":[{"command":"/a:b","description":"d"}]}"#).unwrap();
+    assert_eq!(g.commands[0].when, "");
+}
+
+/// 실제 설치된 ecc 플러그인 명령 5개로 한국어 설명을 만들어 본다 (Claude 로그인 필요, 결과는 임시 폴더에만 저장).
+/// cargo test real_command_guide -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_command_guide() {
+    let snap = scanner::scan(&[]);
+    let Some(p) = snap.plugins.iter().find(|p| p.name == "ecc" && p.path_exists) else {
+        eprintln!("ecc 플러그인이 없어 건너뜀");
+        return;
+    };
+    let names: Vec<String> = ["aside", "build-fix", "checkpoint", "code-review", "astra-review"]
+        .iter()
+        .filter(|n| p.components.commands.iter().chain(&p.components.skills).any(|c| c.name == **n))
+        .map(|n| n.to_string())
+        .collect();
+    let dir = temp_dir("real-guide");
+    let g = crate::guide::generate_commands(&dir, p, &names).expect("생성 실패");
+    for c in &g.commands {
+        println!("{}\n  설명: {}\n  추천: {}\n  쓰는 법: {}\n  예시: {}\n", c.command, c.description, c.when, c.usage, c.example);
+    }
+    assert_eq!(g.commands.len(), names.len(), "요청한 명령이 모두 있어야 한다");
+    assert!(g.commands.iter().all(|c| !c.when.is_empty()));
+    let _ = fs::remove_dir_all(&dir);
 }

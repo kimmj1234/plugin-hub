@@ -5,7 +5,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, cliMessage, errorText } from "../api";
 import { useHub } from "../hub";
-import type { AcceptPrompt, CatalogEntry, InstallScope } from "../types";
+import type { AcceptPrompt, CatalogEntry, Components, InstallScope } from "../types";
+import { componentTokens, formatTokens, tokenWeight } from "../cost";
 import { CATEGORIES, OTHER, POPULARITY_DATE, categorize, categoryById, formatStars, koDescription, stars, topPopular } from "../catalogMeta";
 import { GuidePanel } from "../components/GuidePanel";
 import { usableInApp } from "../claudeApp";
@@ -33,7 +34,7 @@ interface Row extends CatalogEntry {
   ko: string | null;
 }
 
-export function Discover() {
+export function Discover({ openInstalled }: { openInstalled?: (pluginId: string) => void } = {}) {
   const { snap, refresh, toast, withBusy, busy, catalog, catalogLoading, catalogError, refreshCatalog, prefs, projects, addProject, perm, refreshPerm, remoteError } = useHub();
   const [instScope, setInstScope] = useState<InstallScope>("user");
   const [instProject, setInstProject] = useState<string>("");
@@ -44,7 +45,9 @@ export function Discover() {
   const [filter, setFilter] = useState<Filter>("all");
   const [limit, setLimit] = useState(PAGE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<CatalogEntry | null>(null);
+  const [confirm, setConfirm] = useState<Row | null>(null);
+  // 설치 전 구성 미리보기: undefined = 불러오는 중, null = 알 수 없음
+  const [preview, setPreview] = useState<Components | null | undefined>(undefined);
   const [accept, setAccept] = useState<{ entry: CatalogEntry; prompt: AcceptPrompt } | null>(null);
   const [mktSource, setMktSource] = useState("");
   const [surface, setSurfaceState] = useState<Surface>(loadSurface);
@@ -188,10 +191,12 @@ export function Discover() {
 
   useEffect(() => setLimit(PAGE), [q, mkt, cat, filter, sort]);
 
-  const openConfirm = (e: CatalogEntry) => {
+  const openConfirm = (e: Row) => {
     setInstScope(prefs.defaultInstallScope);
     setInstProject(prefs.defaultInstallProject ?? projects[0]?.path ?? "");
     setConfirm(e);
+    setPreview(undefined);
+    api.preview(e.pluginId).then(setPreview).catch(() => setPreview(null));
   };
 
   const doInstall = async (entry: CatalogEntry, sha?: string) => {
@@ -209,7 +214,7 @@ export function Discover() {
       setAccept({ entry, prompt: r.needsAccept });
       return;
     }
-    toast(r.ok ? "ok" : "error", `${entry.name} 설치: ${cliMessage(r)}`);
+    toast(r.ok ? "ok" : "error", r.ok ? `${entry.name}을(를) 설치했습니다. '내 플러그인에서 열기'로 쓰는 법을 볼 수 있습니다.` : `${entry.name} 설치: ${cliMessage(r)}`);
     refresh();
   };
 
@@ -472,7 +477,10 @@ export function Discover() {
             </div>
             <div className="actions">
               {installedOn(selected, surface) ? (
-                <span className="badge ok">{SURFACE_LABEL[surface]}에 설치됨 · '내 플러그인'에서 슬래시 명령과 사용법을 볼 수 있습니다</span>
+                <>
+                  <span className="badge ok">{SURFACE_LABEL[surface]}에 설치됨</span>
+                  {openInstalled && surface === "cli" && <button className="primary" onClick={() => openInstalled(selected.pluginId)}>내 플러그인에서 열기</button>}
+                </>
               ) : surface === "cli" ? (
                 selected.installable && <button className="primary" disabled={!!busy[selected.pluginId]} onClick={() => openConfirm(selected)}>설치</button>
               ) : (
@@ -504,11 +512,23 @@ export function Discover() {
 
       {confirm && (
         <Modal title={`${confirm.name} 설치`} onClose={() => setConfirm(null)}>
-            <p>
+            {confirm.ko ? <p className="desc ko">{confirm.ko}</p> : confirm.description && <p className="small">{confirm.description}</p>}
+            <div className="meta">
+              {confirm.stars !== null && <span className="badge" title={`GitHub 스타 (${POPULARITY_DATE} 기준)`}>★ {formatStars(confirm.stars)}</span>}
+              {confirm.version && <span className="badge">v{confirm.version}</span>}
+              <span className="badge">{confirm.marketplace === DIRECTORY ? "공식 디렉터리" : confirm.marketplace}</span>
+              {preview === undefined && <span className="badge">구성 확인 중…</span>}
+              {preview && <PreviewBadges c={preview} />}
+            </div>
+            {preview === null && <p className="muted small">이 플러그인은 설치할 때 내려받기 때문에 매 세션 토큰과 훅·MCP 구성은 설치 후 '내 플러그인'에서 확인할 수 있습니다.</p>}
+            <p className="small">
               <code>{confirm.pluginId}</code>
               {confirm.sourceUrl && <><br />출처: <span className="mono small">{confirm.sourceUrl}</span></>}
             </p>
-            <p className="note warn small">플러그인은 내 컴퓨터에서 코드를 실행할 수 있습니다. 믿을 수 있는 출처인지 확인한 뒤 설치하세요.</p>
+            <p className="note warn small">
+              플러그인은 내 컴퓨터에서 코드를 실행할 수 있습니다. 믿을 수 있는 출처인지 확인한 뒤 설치하세요.
+              {preview && preview.hooks.length > 0 && <> 이 플러그인에는 Claude Code가 동작하는 중에 자동으로 실행되는 훅 {preview.hooks.length}개({preview.hooks.slice(0, 3).join(", ")}{preview.hooks.length > 3 ? " 등" : ""})가 있습니다.</>}
+            </p>
             <div className="scope-choice">
               <div className="small"><strong>어디에 적용할까요?</strong></div>
               {([
@@ -549,5 +569,19 @@ export function Discover() {
         </Modal>
       )}
     </div>
+  );
+}
+
+function PreviewBadges({ c }: { c: Components }) {
+  const n = componentTokens(c);
+  const w = tokenWeight(n);
+  const parts = [c.skills.length && `스킬 ${c.skills.length}`, c.commands.length && `명령 ${c.commands.length}`, c.agents.length && `에이전트 ${c.agents.length}`].filter(Boolean);
+  return (
+    <>
+      <span className={`badge cost ${w.level}`} title={`설치하면 매 세션 컨텍스트에 들어가는 양(추정). ${w.hint}`}>{w.label} · 매 세션 약 {formatTokens(n)} 토큰</span>
+      {parts.length > 0 && <span className="badge">{parts.join(" · ")}</span>}
+      {c.hooks.length > 0 && <span className="badge warn">훅 {c.hooks.length}</span>}
+      {c.mcpServers.length > 0 && <span className="badge">MCP 서버 {c.mcpServers.length}</span>}
+    </>
   );
 }

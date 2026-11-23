@@ -75,6 +75,8 @@ function Shell() {
   }, []);
   const [view, setView] = useState<View>("home");
   const [pluginsTab, setPluginsTab] = useState<PluginsTab>("list");
+  // '플러그인 찾기'에서 설치한 뒤 '내 플러그인에서 열기'를 누르면 그 플러그인을 골라 둔다
+  const [focusPlugin, setFocusPlugin] = useState<string | null>(null);
   const problems = snap?.diagnostics.filter((d) => d.severity !== "info").length ?? 0;
   const cliCount = snap?.plugins.filter((p) => p.surface === "cli").length ?? 0;
 
@@ -148,9 +150,9 @@ function Shell() {
           </div>
         )}
         {snap && view === "home" && <Dashboard go={(v) => { if (v === "plugins") setPluginsTab("list"); setView(v); }} />}
-        {snap && view === "plugins" && <MyPlugins tab={pluginsTab} setTab={setPluginsTab} />}
+        {snap && view === "plugins" && <MyPlugins tab={pluginsTab} setTab={setPluginsTab} focus={focusPlugin} />}
         {snap && view === "settings" && <Settings />}
-        {snap && view === "discover" && <Discover />}
+        {snap && view === "discover" && <Discover openInstalled={(id) => { setFocusPlugin(id); setPluginsTab("list"); setView("plugins"); }} />}
       </main>
 
       <Toasts toasts={toasts} dismiss={dismissToast} />
